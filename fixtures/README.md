@@ -12,13 +12,14 @@ python3 scripts/fixture_test.py
 python3 fixtures/server.py
 ```
 
-生成脚本需要 `ffmpeg` 与 `ffprobe`；服务器和 HTTP 测试使用 Python 标准库。生成结果在 `fixtures/media/`，已被 Git 忽略；`inventory.json` 记录文件大小、SHA-256 与源视频轨道信息。当前生成 47 个文件，共约 5.21 MB，不包括清单自身。重复生成会覆盖测试媒体。
+生成脚本需要 `ffmpeg` 与 `ffprobe`；服务器和 HTTP 测试使用 Python 标准库。生成结果在 `fixtures/media/`，已被 Git 忽略；`inventory.json` 记录文件大小、SHA-256 与源视频轨道信息。当前生成 158 个文件，不包括清单自身，实际字节数以清单为准。重复生成会覆盖测试媒体。
 
 默认入口是 `http://127.0.0.1:8765/`，跨源 iframe 使用 `8766` 端口。模拟器可直接访问这两个回环地址。iPhone 上的 `127.0.0.1` 指向手机本身；真机使用这些测试页时，需要将开发服务器绑定到可达的局域网地址，并在手机输入该地址。App 浏览和下载其他站点不依赖此开发服务器。
 
 | 页面 | 视频或清单 | 验证内容 |
 | --- | --- | --- |
 | `/direct` | `/media/direct.mp4` | 8 秒有声 MP4，从播放页识别与下载 |
+| `/cover-timeline` | `/media/cover-timeline.mp4` | 每两秒依次为黑、红、绿、蓝，检查精确选帧、自动避黑、取消和重启保留 |
 | `/history-delayed` | 无媒体，延迟 0.8 秒返回网页 | 加载中清理历史后，迟到的导航提交不能恢复记录 |
 | `/iframe` | 同源 iframe 内的 `/direct` | 所有 frame 的注入与消息归属 |
 | `/cross-frame` | 另一端口 iframe 内的 `/direct` | 跨源 frame，不依赖主文档读取 frame DOM |

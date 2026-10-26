@@ -182,6 +182,13 @@ def generate():
         raise SystemExit("Install ffmpeg (including ffprobe) to generate development fixtures.")
     MEDIA.mkdir(parents=True, exist_ok=True)
     run("-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "8", *video_options(), "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", MEDIA / "direct.mp4")
+    # Solid colors make cover selection and black-intro avoidance measurable.
+    cover_source = ("color=black:size=640x360:rate=24,"
+                    "drawbox=color=red:t=fill:enable='gte(t,2)*lt(t,4)',"
+                    "drawbox=color=green:t=fill:enable='gte(t,4)*lt(t,6)',"
+                    "drawbox=color=blue:t=fill:enable='gte(t,6)'")
+    run("-f", "lavfi", "-i", cover_source, "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+        "-t", "8", *video_options(), "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", MEDIA / "cover-timeline.mp4")
     run("-i", MEDIA / "direct.mp4", "-an", "-c:v", "copy", "-movflags", "+faststart", MEDIA / "silent.mp4")
     run("-i", MEDIA / "direct.mp4", "-c", "copy", "-movflags", "+frag_keyframe+empty_moov+default_base_moof", MEDIA / "mse.mp4")
     for family, separate in [("hls", False), ("hls-separate", True)]:

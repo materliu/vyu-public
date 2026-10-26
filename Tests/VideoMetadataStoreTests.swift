@@ -10,10 +10,94 @@ import XCTest
             XCTAssertNil(store.metadata(for: id))
             XCTAssertFalse(store.isFavorite(id))
             XCTAssertEqual(store.tags(for: id), [])
+            XCTAssertNil(store.coverFrameSeconds(for: id))
+            try store.setCoverFrameSeconds(nil, for: id)
             try store.setTags([], for: id)
             try store.setTags(["  ", "#"], for: id)
             XCTAssertTrue(store.entries.isEmpty)
             XCTAssertFalse(FileManager.default.fileExists(atPath: metadataFile(directory).path))
+        }
+    }
+
+    func testCoverSelectionPersistsAndOtherEditsKeepItsFrame() throws {
+        try withDirectory { directory in
+            let store = VideoMetadataStore(rootDirectory: directory)
+            let id = UUID()
+            try store.setCoverFrameSeconds(3.25, for: id)
+            let selected = try XCTUnwrap(store.metadata(for: id))
+            XCTAssertEqual(store.coverFrameSeconds(for: id), 3.25)
+            try store.setCoverFrameSeconds(3.25, for: id)
+            XCTAssertEqual(store.metadata(for: id), selected, "Selecting the same frame must not create another revision.")
+            try store.toggleFavorite(id)
+            try store.setTags(["封面测试"], for: id)
+            XCTAssertEqual(store.coverFrameSeconds(for: id), 3.25)
+            XCTAssertTrue(store.isFavorite(id))
+            XCTAssertEqual(store.tags(for: id), ["封面测试"])
+            let restarted = VideoMetadataStore(rootDirectory: directory)
+            XCTAssertEqual(restarted.entries, store.entries)
+            try restarted.setCoverFrameSeconds(0, for: id)
+            XCTAssertEqual(restarted.coverFrameSeconds(for: id), 0, "A deliberately selected first frame is distinct from automatic selection.")
+        }
+    }
+
+    func testClearingCoverPersistsNewRevisionAndKeepsTagsAndFavorite() throws {
+        try withDirectory { directory in
+            let store = VideoMetadataStore(rootDirectory: directory)
+            let id = UUID()
+            try store.toggleFavorite(id)
+            try store.setTags(["保留"], for: id)
+            try store.setCoverFrameSeconds(4, for: id)
+            let selected = try XCTUnwrap(store.metadata(for: id))
+            try store.setCoverFrameSeconds(nil, for: id)
+            let automatic = try XCTUnwrap(store.metadata(for: id))
+            XCTAssertNil(automatic.coverFrameSeconds)
+            XCTAssertTrue(automatic.isNewer(than: selected))
+            XCTAssertTrue(automatic.isFavorite)
+            XCTAssertEqual(automatic.tags, ["保留"])
+            try store.merge([id: selected])
+            XCTAssertEqual(store.metadata(for: id), automatic)
+            XCTAssertEqual(VideoMetadataStore(rootDirectory: directory).metadata(for: id), automatic)
+        }
+    }
+
+    func testLegacyArchiveWithoutCoverFieldRestoresAndCanBeEdited() throws {
+        try withDirectory { directory in
+            let entry = makeMetadata()
+            let file = metadataFile(directory)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(MetadataArchiveFixture(schemaVersion: 1, entries: [entry]))
+            XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("coverFrameSeconds"))
+            try data.write(to: file)
+            let store = VideoMetadataStore(rootDirectory: directory)
+            XCTAssertEqual(store.metadata(for: entry.id), entry)
+            XCTAssertNil(store.coverFrameSeconds(for: entry.id))
+            try store.setCoverFrameSeconds(1.5, for: entry.id)
+            XCTAssertEqual(store.tags(for: entry.id), entry.tags)
+            XCTAssertTrue(store.isFavorite(entry.id))
+            XCTAssertEqual(VideoMetadataStore(rootDirectory: directory).coverFrameSeconds(for: entry.id), 1.5)
+        }
+    }
+
+    func testInvalidCoverTimesAreRejectedWithoutPublishingOrSaving() throws {
+        try withDirectory { directory in
+            let store = VideoMetadataStore(rootDirectory: directory)
+            let id = UUID()
+            try store.setCoverFrameSeconds(2, for: id)
+            let before = store.entries
+            let bytes = try Data(contentsOf: metadataFile(directory))
+            var publications = 0
+            let observation = store.$entries.dropFirst().sink { _ in publications += 1 }
+            defer { observation.cancel() }
+            for value in [Double.nan, .infinity, -.infinity, -1] {
+                XCTAssertThrowsError(try store.setCoverFrameSeconds(value, for: id))
+                var invalid = try XCTUnwrap(store.metadata(for: id))
+                invalid.coverFrameSeconds = value
+                XCTAssertThrowsError(try invalid.validate())
+                XCTAssertThrowsError(try store.merge([id: invalid]))
+            }
+            XCTAssertEqual(publications, 0)
+            XCTAssertEqual(store.entries, before)
+            XCTAssertEqual(try Data(contentsOf: metadataFile(directory)), bytes)
         }
     }
 
@@ -112,6 +196,7 @@ import XCTest
             let entry = makeMetadata()
             XCTAssertThrowsError(try store.toggleFavorite(entry.id))
             XCTAssertThrowsError(try store.setTags([], for: entry.id))
+            XCTAssertThrowsError(try store.setCoverFrameSeconds(2, for: entry.id))
             XCTAssertThrowsError(try store.merge([entry.id: entry]))
             XCTAssertThrowsError(try store.remove(ids: [entry.id]))
             XCTAssertTrue(store.entries.isEmpty)
@@ -152,6 +237,7 @@ import XCTest
             defer { observation.cancel() }
             XCTAssertThrowsError(try store.toggleFavorite(id))
             XCTAssertThrowsError(try store.setTags(["新标签"], for: id))
+            XCTAssertThrowsError(try store.setCoverFrameSeconds(2, for: id))
             let incoming = makeMetadata()
             XCTAssertThrowsError(try store.merge([incoming.id: incoming]))
             XCTAssertThrowsError(try store.remove(ids: [id]))

@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit
 import UIKit
 import XCTest
 @testable import VYu
@@ -188,6 +189,156 @@ import XCTest
             XCTAssertNotNil(result)
         }
         XCTAssertEqual(maximumActive, 2)
+    }
+
+    func testOldAutomaticCacheIsRegeneratedAfterCoverAlgorithmChanges() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = try fakeSource(in: directory)
+        let entry = record()
+        let cache = directory.appendingPathComponent("Thumbnails")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        let values = try FileManager.default.attributesOfItem(atPath: source.path)
+        let legacyVersion = ["1", source.standardizedFileURL.path,
+            String((values[.size] as? NSNumber)?.int64Value ?? 0),
+            String((values[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0),
+            String((values[.creationDate] as? Date)?.timeIntervalSince1970 ?? 0)].joined(separator: "\n")
+        let legacyHash = SHA256.hash(data: Data(legacyVersion.utf8)).map { String(format: "%02x", $0) }.joined()
+        let oldCover = cache.appendingPathComponent(entry.id.uuidString + "_" + legacyHash + ".jpg")
+        try jpeg().write(to: oldCover)
+        var calls = 0
+        let store = VideoThumbnailStore(directory: cache) { _, _ in calls += 1; return self.jpeg() }
+        let refreshed = await store.image(for: entry, localURL: source)
+        XCTAssertNotNil(refreshed)
+        XCTAssertEqual(calls, 1, "A black cover made by the previous algorithm must be reconsidered.")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldCover.path))
+        XCTAssertEqual(cacheFiles(cache).count, 1)
+    }
+
+    func testSelectedFrameHasItsOwnCacheAndSurvivesRestart() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = try fakeSource(in: directory)
+        let cache = directory.appendingPathComponent("Thumbnails")
+        var automaticCalls = 0, selectedCalls: [Double] = []
+        let store = VideoThumbnailStore(directory: cache, frameRenderer: { _, seconds, _ in
+            selectedCalls.append(seconds); return self.jpeg()
+        }, renderer: { _, _ in automaticCalls += 1; return self.jpeg() })
+        let entry = record()
+        let first = await store.image(for: entry, localURL: source, frameSeconds: 0.25)
+        XCTAssertNotNil(first)
+        let selectedName = try XCTUnwrap(cacheFiles(cache).first?.lastPathComponent)
+        let restored = VideoThumbnailStore(directory: cache, frameRenderer: { _, _, _ in
+            XCTFail("The selected frame should load from disk after restart."); return nil
+        }, renderer: { _, _ in XCTFail("A selected frame must not use automatic rendering."); return nil })
+        let restoredImage = await restored.image(for: entry, localURL: source, frameSeconds: 0.25)
+        XCTAssertNotNil(restoredImage)
+        let automatic = await store.image(for: entry, localURL: source)
+        XCTAssertNotNil(automatic)
+        XCTAssertEqual(automaticCalls, 1)
+        XCTAssertEqual(selectedCalls, [0.25])
+        XCTAssertEqual(cacheFiles(cache).count, 1)
+        XCTAssertNotEqual(cacheFiles(cache).first?.lastPathComponent, selectedName)
+    }
+
+    func testOlderAutomaticRequestCannotReplaceSelectedFrame() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = try fakeSource(in: directory)
+        let cache = directory.appendingPathComponent("Thumbnails")
+        var automatic: CheckedContinuation<Data?, Never>?
+        var selectedCalls = 0
+        let store = VideoThumbnailStore(directory: cache, frameRenderer: { _, _, _ in
+            selectedCalls += 1; return self.jpeg()
+        }, renderer: { _, _ in await withCheckedContinuation { automatic = $0 } })
+        let entry = record()
+        let pending = Task { await store.image(for: entry, localURL: source) }
+        try await waitUntil { automatic != nil }
+        let selected = await store.image(for: entry, localURL: source, frameSeconds: 0.5)
+        XCTAssertNotNil(selected)
+        let selectedName = cacheFiles(cache).first?.lastPathComponent
+        automatic?.resume(returning: jpeg())
+        let stale = await pending.value
+        XCTAssertNil(stale)
+        XCTAssertEqual(cacheFiles(cache).count, 1)
+        XCTAssertEqual(cacheFiles(cache).first?.lastPathComponent, selectedName)
+        let selectedAgain = await store.image(for: entry, localURL: source, frameSeconds: 0.5)
+        XCTAssertNotNil(selectedAgain)
+        XCTAssertEqual(selectedCalls, 1)
+    }
+
+    func testOlderSelectedFrameCannotReplaceNewerSelection() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = try fakeSource(in: directory)
+        let cache = directory.appendingPathComponent("Thumbnails")
+        var oldFrame: CheckedContinuation<Data?, Never>?
+        var calls: [Double] = []
+        let store = VideoThumbnailStore(directory: cache, frameRenderer: { _, seconds, _ in
+            calls.append(seconds)
+            if seconds == 0.25 { return await withCheckedContinuation { oldFrame = $0 } }
+            return self.jpeg()
+        })
+        let entry = record()
+        let pending = Task { await store.image(for: entry, localURL: source, frameSeconds: 0.25) }
+        try await waitUntil { oldFrame != nil }
+        let newer = await store.image(for: entry, localURL: source, frameSeconds: 0.75)
+        XCTAssertNotNil(newer)
+        let selectedName = cacheFiles(cache).first?.lastPathComponent
+        oldFrame?.resume(returning: jpeg())
+        let stale = await pending.value
+        XCTAssertNil(stale)
+        XCTAssertEqual(cacheFiles(cache).first?.lastPathComponent, selectedName)
+        XCTAssertEqual(calls, [0.25, 0.75])
+    }
+
+    func testIdenticalSelectedFramesShareGenerationAndFailuresNeverUseAutomaticFrame() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = try fakeSource(in: directory)
+        var calls = 0, automaticCalls = 0
+        let store = VideoThumbnailStore(directory: directory.appendingPathComponent("Thumbnails"), frameRenderer: { _, _, _ in
+            calls += 1
+            try? await Task.sleep(for: .milliseconds(50))
+            return nil
+        }, renderer: { _, _ in automaticCalls += 1; return self.jpeg() })
+        let entry = record()
+        async let first = store.image(for: entry, localURL: source, frameSeconds: 0.4)
+        async let second = store.image(for: entry, localURL: source, frameSeconds: 0.4)
+        let results = await (first, second)
+        XCTAssertNil(results.0); XCTAssertNil(results.1)
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(automaticCalls, 0)
+        let invalid = await store.image(for: entry, localURL: source, frameSeconds: .nan)
+        XCTAssertNil(invalid)
+        XCTAssertEqual(calls, 1)
+    }
+
+    func testSelectedFrameFailureCanRetryAndDeletionCannotRestoreIt() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = try fakeSource(in: directory)
+        let cache = directory.appendingPathComponent("Thumbnails")
+        var now = Date(timeIntervalSince1970: 100)
+        var calls = 0
+        var retry: CheckedContinuation<Data?, Never>?
+        let store = VideoThumbnailStore(directory: cache, now: { now }, frameRenderer: { _, _, _ in
+            calls += 1
+            if calls == 1 { return nil }
+            return await withCheckedContinuation { retry = $0 }
+        })
+        let entry = record()
+        let unavailable = await store.image(for: entry, localURL: source, frameSeconds: 0.1)
+        XCTAssertNil(unavailable)
+        now.addTimeInterval(31)
+        let pending = Task { await store.image(for: entry, localURL: source, frameSeconds: 0.1) }
+        try await waitUntil { retry != nil }
+        store.remove(id: entry.id)
+        retry?.resume(returning: jpeg())
+        let removed = await pending.value
+        XCTAssertNil(removed)
+        XCTAssertTrue(cacheFiles(cache).isEmpty)
+        XCTAssertEqual(calls, 2)
     }
 
     private func temporaryDirectory() throws -> URL {

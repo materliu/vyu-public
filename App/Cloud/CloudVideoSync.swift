@@ -43,6 +43,12 @@ final class CloudVideoSync: ObservableObject {
     private var restoreRequests: Set<UUID> = []
     private var pendingPlaybackID: UUID?
     private var uploadFailures: Set<UUID> = []
+    private struct CoverWork {
+        let metadata: VideoMetadata
+        let record: DownloadRecord
+        let access: CloudCoverWriteAccess
+    }
+    private var coverWork: [UUID: CoverWork] = [:]
 
     /// The override is used only by tests with temporary, local synthetic data.
     init(downloads: DownloadManager, metadataStore: VideoMetadataStore? = nil, containerOverride: URL? = nil,
@@ -76,9 +82,13 @@ final class CloudVideoSync: ObservableObject {
                 self?.query?.stop(); self?.query = nil; self?.queryReady = false
                 await self?.refreshAccount()
             } })
-        subscription = downloads.$records.dropFirst().debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+        subscription = downloads.$records.dropFirst().handleEvents(receiveOutput: { [weak self] records in
+            self?.invalidateCoverWork(records: records)
+        }).debounce(for: .milliseconds(500), scheduler: RunLoop.main)
             .sink { [weak self] _ in Task { @MainActor in await self?.synchronize() } }
-        metadataSubscription = metadataStore?.$entries.dropFirst().debounce(for: .milliseconds(350), scheduler: RunLoop.main)
+        metadataSubscription = metadataStore?.$entries.dropFirst().handleEvents(receiveOutput: { [weak self] entries in
+            self?.invalidateCoverWork(metadata: entries)
+        }).debounce(for: .milliseconds(350), scheduler: RunLoop.main)
             .sink { [weak self] _ in Task { @MainActor in await self?.synchronize() } }
     }
 
@@ -359,7 +369,9 @@ final class CloudVideoSync: ObservableObject {
                 state.owners[record.id] = account
                 guard saveState() else { return }
                 operations[record.id] = "正在准备 iCloud 视频"
-                let thumbnail = await downloads.thumbnailStore.image(for: record, localURL: local)?.jpegData(compressionQuality: 0.78)
+                let selection = metadataStore?.metadata(for: record.id)
+                let thumbnail = await downloads.thumbnailStore.image(for: record, localURL: local,
+                    frameSeconds: selection?.coverFrameSeconds)?.jpegData(compressionQuality: 0.78)
                 guard valid(), downloads.records.contains(where: { $0.id == record.id && $0.phase == .complete }),
                       !(state.deletions[account]?.contains(record.id) ?? false) else { continue }
                 let parent = directory.appendingPathComponent("Upload-\(UUID().uuidString)", isDirectory: true)
@@ -417,10 +429,60 @@ final class CloudVideoSync: ObservableObject {
                         refreshAgain = true
                     }
                     try metadataStore.merge(annotations.entries)
-                    metadataMessage = localFailure || annotations.invalidCount > 0 ? "收藏和标签暂未同步，可稍后重试" : nil
+                    metadataMessage = localFailure || annotations.invalidCount > 0 ? "视频资料暂未同步，可稍后重试" : nil
+                    // A cloud-only device imports the chosen time without restoring media.
+                    // Devices with a complete local copy can publish the corresponding small JPEG.
+                    for id in allowed.sorted(by: { $0.uuidString < $1.uuidString }) {
+                        guard valid(), state.owners[id] == account,
+                              !(state.deletions[account]?.contains(id) ?? false),
+                              let annotation = metadataStore.metadata(for: id),
+                              let entry = entries[id],
+                              let record = downloads.records.first(where: { $0.id == id && $0.phase == .complete }),
+                              let local = downloads.localURL(for: record) else { continue }
+                        do {
+                            let currentCover = try await Task.detached(priority: .utility) {
+                                try CloudVideoFiles.hasCurrentCover(metadata: annotation, manifest: entry.manifest,
+                                    container: container, ubiquitous: ubiquitous, access: access)
+                            }.value
+                            guard valid(), metadataStore.metadata(for: id) == annotation,
+                                  downloads.records.contains(record), entries[id] != nil,
+                                  !(state.deletions[account]?.contains(id) ?? false) else { continue }
+                            guard !currentCover else { continue }
+                            let writeAccess = CloudCoverWriteAccess()
+                            coverWork[id]?.access.cancel()
+                            coverWork[id] = CoverWork(metadata: annotation, record: record, access: writeAccess)
+                            defer { if coverWork[id]?.access === writeAccess { coverWork.removeValue(forKey: id) } }
+                            let thumbnail = await downloads.thumbnailStore.image(for: record, localURL: local,
+                                frameSeconds: annotation.coverFrameSeconds)?.jpegData(compressionQuality: 0.78)
+                            try writeAccess.check()
+                            guard valid(), metadataStore.metadata(for: id) == annotation,
+                                  downloads.records.contains(record), entries[id] != nil,
+                                  !(state.deletions[account]?.contains(id) ?? false) else { continue }
+                            guard let thumbnail else { throw CloudVideoArchiveError.invalidThumbnail }
+                            let wrote = try await Task.detached(priority: .utility) {
+                                try CloudVideoFiles.updateCover(thumbnailJPEG: thumbnail, metadata: annotation,
+                                    manifest: entry.manifest, container: container, ubiquitous: ubiquitous,
+                                    access: access, writeAccess: writeAccess)
+                            }.value
+                            try writeAccess.check()
+                            guard valid(), metadataStore.metadata(for: id) == annotation,
+                                  downloads.records.contains(record), let currentEntry = entries[id],
+                                  !(state.deletions[account]?.contains(id) ?? false) else { continue }
+                            if wrote {
+                                entries[id] = CloudVideoEntry(manifest: currentEntry.manifest, thumbnail: thumbnail,
+                                    uploaded: !ubiquitous, transferError: currentEntry.transferError)
+                            }
+                        } catch is CancellationError {
+                            guard valid() else { return }
+                            refreshAgain = true
+                        } catch {
+                            guard valid() else { return }
+                            metadataMessage = "封面暂未同步，可稍后重试"
+                        }
+                    }
                 } catch {
                     guard valid() else { return }
-                    metadataMessage = "收藏和标签暂未同步，可稍后重试"
+                    metadataMessage = "视频资料暂未同步，可稍后重试"
                 }
             }
             guard valid() else { return }
@@ -430,6 +492,14 @@ final class CloudVideoSync: ObservableObject {
         } catch {
             if valid() { message = "iCloud 同步未完成，请检查网络和存储空间后重试" }
         }
+    }
+
+    private func invalidateCoverWork(records: [DownloadRecord]) {
+        for work in coverWork.values where !records.contains(work.record) { work.access.cancel() }
+    }
+
+    private func invalidateCoverWork(metadata: [UUID: VideoMetadata]) {
+        for (id, work) in coverWork where metadata[id] != work.metadata { work.access.cancel() }
     }
 
     @discardableResult private func saveState() -> Bool {

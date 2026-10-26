@@ -43,6 +43,12 @@ private struct VideoTagPresentation: Identifiable {
     let title: String
 }
 
+private struct VideoCoverPresentation: Identifiable {
+    let id: UUID
+    let title: String
+    let localURL: URL
+}
+
 struct ContentView: View {
     @ObservedObject var browser: BrowserModel
     @ObservedObject var downloads: DownloadManager
@@ -65,6 +71,7 @@ struct ContentView: View {
     @State private var offlineQuery = ""
     @State private var onlyFavoriteVideos = false
     @State private var tagPresentation: VideoTagPresentation?
+    @State private var coverPresentation: VideoCoverPresentation?
     @State private var metadataError: String?
     @State private var offlineSelection = OfflineSelection()
 
@@ -78,6 +85,10 @@ struct ContentView: View {
         .sheet(isPresented: $showVideoImport) { LocalVideoImportSheet(downloads: downloads) }
         .sheet(item: $tagPresentation) { presentation in
             VideoTagEditorSheet(videoID: presentation.id, title: presentation.title, videoMetadata: videoMetadata)
+        }
+        .sheet(item: $coverPresentation) { presentation in
+            VideoCoverPickerSheet(videoID: presentation.id, title: presentation.title, localURL: presentation.localURL,
+                                  downloads: downloads, videoMetadata: videoMetadata)
         }
         .alert("无法保存", isPresented: Binding(get: { metadataError != nil }, set: { if !$0 { metadataError = nil } })) {
             Button("好") { metadataError = nil }
@@ -589,6 +600,9 @@ struct ContentView: View {
         if videoMetadata.isFavorite(id) { values.append("已收藏") }
         let tags = videoMetadata.tags(for: id)
         if !tags.isEmpty { values.append("标签：" + tags.joined(separator: "、")) }
+        if let seconds = videoMetadata.coverFrameSeconds(for: id) {
+            values.append(String(format: "自选封面 · %.3f 秒", seconds))
+        }
         return values.joined(separator: " · ")
     }
 
@@ -637,6 +651,7 @@ struct ContentView: View {
                 .accessibilityHint("从 iCloud 下载并播放")
             Menu {
                 videoOrganizationActions(id: entry.id, title: entry.manifest.title)
+                Button("下载后可选择封面", systemImage: "photo") {}.disabled(true)
                 Divider()
                 Button("从本机列表移除", systemImage: "minus.circle") { cloudToRemove = entry }
                 Button("从所有设备删除", systemImage: "trash", role: .destructive) { cloudToDelete = entry.id }
@@ -715,6 +730,12 @@ struct ContentView: View {
             // Keep management actions outside the playback button's hit target.
             Menu {
                 videoOrganizationActions(id: record.id, title: record.candidate.title)
+                if record.phase == .complete, let localURL = downloads.localURL(for: record), localURL.isFileURL {
+                    Button("选择封面", systemImage: "photo") {
+                        coverPresentation = VideoCoverPresentation(id: record.id,
+                            title: record.candidate.title.isEmpty ? "视频" : record.candidate.title, localURL: localURL)
+                    }.accessibilityIdentifier("chooseVideoCover")
+                }
                 Divider()
                 if record.phase == .complete {
                     if downloads.localURL(for: record)?.pathExtension.lowercased() == "movpkg" {
@@ -743,7 +764,8 @@ struct ContentView: View {
 
     private func downloadSummary(_ record: DownloadRecord) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            OfflineVideoThumbnail(record: record, localURL: downloads.localURL(for: record), store: downloads.thumbnailStore)
+            OfflineVideoThumbnail(record: record, localURL: downloads.localURL(for: record), store: downloads.thumbnailStore,
+                                  frameSeconds: videoMetadata.coverFrameSeconds(for: record.id))
             VStack(alignment: .leading, spacing: 4) {
                 videoTitle(record.candidate.title, id: record.id)
                 Text(sourceLabel(record)).font(.caption).foregroundStyle(.secondary)

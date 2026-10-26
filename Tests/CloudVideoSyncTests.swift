@@ -421,6 +421,7 @@ import XCTest
         let sourceMetadata = VideoMetadataStore(rootDirectory: source.rootDirectory)
         try sourceMetadata.toggleFavorite(id)
         try sourceMetadata.setTags(["旅行", "Family"], for: id)
+        try sourceMetadata.setCoverFrameSeconds(3, for: id)
         let sourceSync = makeController(source, cloud: cloud, metadata: sourceMetadata)
         await sourceSync.refreshAccount()
         XCTAssertNil(sourceSync.metadataMessage)
@@ -436,12 +437,14 @@ import XCTest
         let destinationSync = makeController(destination, cloud: cloud, metadata: destinationMetadata)
         await destinationSync.refreshAccount()
         XCTAssertEqual(destinationMetadata.metadata(for: id), sourceMetadata.metadata(for: id))
+        XCTAssertEqual(destinationMetadata.coverFrameSeconds(for: id), 3)
         XCTAssertTrue(destination.records.isEmpty)
         XCTAssertTrue(try mediaFiles(in: destination).isEmpty, "Editing cloud-only metadata must not download media.")
 
         // A metadata edit itself schedules synchronization; no manual synchronize call here.
         try destinationMetadata.toggleFavorite(id)
         try destinationMetadata.setTags([], for: id)
+        try destinationMetadata.setCoverFrameSeconds(nil, for: id)
         let cleared = try XCTUnwrap(destinationMetadata.metadata(for: id))
         try await waitUntil {
             (try? CloudVideoMetadataFiles.read(at: CloudVideoMetadataFiles.fileURL(id, container: cloud), id: id)) == cleared
@@ -450,6 +453,7 @@ import XCTest
         XCTAssertEqual(sourceMetadata.metadata(for: id), cleared)
         XCTAssertFalse(sourceMetadata.isFavorite(id))
         XCTAssertEqual(sourceMetadata.tags(for: id), [])
+        XCTAssertNil(sourceMetadata.coverFrameSeconds(for: id))
         let relaunched = VideoMetadataStore(rootDirectory: source.rootDirectory)
         XCTAssertEqual(relaunched.metadata(for: id), cleared)
         XCTAssertEqual(try Data(contentsOf: manifestURL), manifestBefore)
@@ -507,6 +511,7 @@ import XCTest
         await sync.restore(id: id)
         XCTAssertTrue(destination.records.isEmpty, "Restoring a colliding UUID must not rebind the previous account's annotations.")
         try metadata.setTags(["原账号的本机新修改"], for: id)
+        try metadata.setCoverFrameSeconds(2, for: id)
         await sync.synchronize()
         XCTAssertFalse(FileManager.default.fileExists(atPath: CloudVideoMetadataFiles.fileURL(id, container: cloud).path))
         XCTAssertEqual(metadata.tags(for: id), ["原账号的本机新修改"])
@@ -538,6 +543,7 @@ import XCTest
         await secondSync.deleteEverywhere(id: id)
         XCTAssertNil(secondMetadata.metadata(for: id))
         try firstMetadata.setTags(["另一端迟到的修改"], for: id)
+        try firstMetadata.setCoverFrameSeconds(2, for: id)
         let late = try XCTUnwrap(firstMetadata.metadata(for: id))
         await firstSync.synchronize()
         XCTAssertNil(firstMetadata.metadata(for: id))
@@ -549,6 +555,193 @@ import XCTest
         XCTAssertTrue(publication.entries.isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: CloudVideoMetadataFiles.fileURL(id, container: cloud).path))
         XCTAssertNil(VideoMetadataStore(rootDirectory: first.rootDirectory).metadata(for: id))
+    }
+
+    func testCoverSelectionUpdatesCloudPreviewWithoutReplacingMediaAndRestoresSelectedFrame() async throws {
+        let cloud = try temporaryDirectory()
+        let source = try makeManager(withVideo: true)
+        let record = try XCTUnwrap(source.records.first)
+        let id = record.id
+        let metadata = VideoMetadataStore(rootDirectory: source.rootDirectory)
+        let sync = makeController(source, cloud: cloud, metadata: metadata)
+        await sync.refreshAccount()
+        let package = CloudVideoFiles.packageURL(id, container: cloud)
+        let marker = package.appendingPathComponent(CloudVideoFiles.coverRevisionFilename)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "A legacy video with no library metadata stays untouched.")
+        let manifest = try CloudVideoArchive.readManifest(at: package)
+        let media = package.appendingPathComponent("video.mp4")
+        let mediaBefore = try Data(contentsOf: media)
+        let mediaDate = try FileManager.default.attributesOfItem(atPath: media.path)[.modificationDate] as? Date
+        let manifestBefore = try Data(contentsOf: package.appendingPathComponent(CloudVideoArchive.manifestFilename))
+
+        try metadata.setCoverFrameSeconds(3, for: id)
+        await sync.synchronize()
+        let selected = try XCTUnwrap(metadata.metadata(for: id))
+        XCTAssertTrue(try CloudVideoFiles.hasCurrentCover(metadata: selected, manifest: manifest, container: cloud, ubiquitous: false))
+        let selectedJPEG = try XCTUnwrap(CloudVideoArchive.thumbnailData(at: package))
+        XCTAssertEqual(sync.entry(for: id)?.thumbnail, selectedJPEG)
+        let markerDate = try FileManager.default.attributesOfItem(atPath: marker.path)[.modificationDate] as? Date
+        let markerBefore = try Data(contentsOf: marker)
+        await sync.synchronize()
+        XCTAssertEqual(try Data(contentsOf: marker), markerBefore)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: marker.path)[.modificationDate] as? Date, markerDate,
+            "The same annotation revision must not continually rewrite the cloud preview.")
+
+        let destination = try makeManager()
+        let destinationMetadata = VideoMetadataStore(rootDirectory: destination.rootDirectory)
+        let destinationSync = makeController(destination, cloud: cloud, metadata: destinationMetadata)
+        await destinationSync.refreshAccount()
+        XCTAssertEqual(destinationMetadata.coverFrameSeconds(for: id), 3)
+        XCTAssertEqual(destinationSync.entry(for: id)?.thumbnail, selectedJPEG)
+        XCTAssertTrue(destination.records.isEmpty, "A selected cover must not trigger media restoration.")
+        await destinationSync.restore(id: id)
+        let restored = try XCTUnwrap(destination.records.first)
+        XCTAssertEqual(destinationMetadata.coverFrameSeconds(for: id), 3)
+        let restoredImage = await destination.thumbnailStore.image(for: restored,
+            localURL: try XCTUnwrap(destination.localURL(for: restored)), frameSeconds: 3)
+        XCTAssertNotNil(restoredImage)
+
+        try destinationMetadata.setCoverFrameSeconds(nil, for: id)
+        await destinationSync.synchronize()
+        await sync.synchronize()
+        XCTAssertNil(metadata.coverFrameSeconds(for: id))
+        let automatic = try XCTUnwrap(metadata.metadata(for: id))
+        XCTAssertTrue(try CloudVideoFiles.hasCurrentCover(metadata: automatic, manifest: manifest, container: cloud, ubiquitous: false))
+        XCTAssertEqual(try Data(contentsOf: media), mediaBefore)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: media.path)[.modificationDate] as? Date, mediaDate)
+        XCTAssertEqual(try Data(contentsOf: package.appendingPathComponent(CloudVideoArchive.manifestFilename)), manifestBefore)
+    }
+
+    func testCoverWriterRejectsStaleRevisionDeletionAndCancelledAccountOrRender() async throws {
+        let cloud = try temporaryDirectory()
+        let manager = try makeManager(withVideo: true)
+        let id = try XCTUnwrap(manager.records.first?.id)
+        let metadata = VideoMetadataStore(rootDirectory: manager.rootDirectory)
+        try metadata.setCoverFrameSeconds(1, for: id)
+        let sync = makeController(manager, cloud: cloud, metadata: metadata)
+        await sync.refreshAccount()
+        let package = CloudVideoFiles.packageURL(id, container: cloud)
+        let manifest = try CloudVideoArchive.readManifest(at: package)
+        let jpeg = try XCTUnwrap(CloudVideoArchive.thumbnailData(at: package))
+        let original = try XCTUnwrap(metadata.metadata(for: id))
+        var newer = original
+        newer.coverFrameSeconds = 3
+        newer.updatedAt = newer.updatedAt.addingTimeInterval(1)
+        newer.revision = UUID()
+        _ = try CloudVideoMetadataFiles.synchronize(local: [id: newer], allowedIDs: [id], deletedIDs: [],
+            container: cloud, metadataURLs: [], ubiquitous: false)
+        let marker = package.appendingPathComponent(CloudVideoFiles.coverRevisionFilename)
+        let before = try Data(contentsOf: marker)
+        XCTAssertFalse(try CloudVideoFiles.updateCover(thumbnailJPEG: jpeg, metadata: original, manifest: manifest,
+            container: cloud, ubiquitous: false), "A late rendered frame cannot replace the winning remote revision.")
+        XCTAssertEqual(try Data(contentsOf: marker), before)
+        let cancelledAccount = CloudSyncAccess(account: "first", identity: { "second" })
+        XCTAssertThrowsError(try CloudVideoFiles.updateCover(thumbnailJPEG: jpeg, metadata: newer, manifest: manifest,
+            container: cloud, ubiquitous: false, access: cancelledAccount))
+        let render = CloudCoverWriteAccess()
+        render.cancel()
+        XCTAssertThrowsError(try CloudVideoFiles.updateCover(thumbnailJPEG: jpeg, metadata: newer, manifest: manifest,
+            container: cloud, ubiquitous: false, writeAccess: render))
+        XCTAssertEqual(try Data(contentsOf: marker), before)
+        try CloudVideoFiles.delete(id: id, container: cloud)
+        XCTAssertFalse(try CloudVideoFiles.updateCover(thumbnailJPEG: jpeg, metadata: newer, manifest: manifest,
+            container: cloud, ubiquitous: false))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: package.path), "Cover publication cannot recreate a deleted package.")
+    }
+
+    func testCoverWriterRejectsLinkedDestinationsAndOversizedImageWithoutChangingMedia() async throws {
+        let cloud = try temporaryDirectory()
+        let manager = try makeManager(withVideo: true)
+        let id = try XCTUnwrap(manager.records.first?.id)
+        let metadata = VideoMetadataStore(rootDirectory: manager.rootDirectory)
+        try metadata.setCoverFrameSeconds(1, for: id)
+        let sync = makeController(manager, cloud: cloud, metadata: metadata)
+        await sync.refreshAccount()
+        let package = CloudVideoFiles.packageURL(id, container: cloud)
+        let manifest = try CloudVideoArchive.readManifest(at: package)
+        let jpeg = try XCTUnwrap(CloudVideoArchive.thumbnailData(at: package))
+        let media = package.appendingPathComponent("video.mp4")
+        let mediaBefore = try Data(contentsOf: media)
+        let prior = try XCTUnwrap(metadata.metadata(for: id))
+        var newer = prior
+        newer.revision = UUID(); newer.updatedAt = newer.updatedAt.addingTimeInterval(1)
+        _ = try CloudVideoMetadataFiles.synchronize(local: [id: newer], allowedIDs: [id], deletedIDs: [],
+            container: cloud, metadataURLs: [], ubiquitous: false)
+        XCTAssertThrowsError(try CloudVideoFiles.updateCover(thumbnailJPEG: Data(repeating: 0, count: CloudVideoArchive.maximumThumbnailBytes + 1),
+            metadata: newer, manifest: manifest, container: cloud, ubiquitous: false))
+        let outside = cloud.appendingPathComponent("untouched.jpg")
+        try jpeg.write(to: outside)
+        let preview = package.appendingPathComponent(CloudVideoArchive.thumbnailFilename)
+        try FileManager.default.removeItem(at: preview)
+        try FileManager.default.createSymbolicLink(at: preview, withDestinationURL: outside)
+        XCTAssertThrowsError(try CloudVideoFiles.updateCover(thumbnailJPEG: jpeg, metadata: newer, manifest: manifest,
+            container: cloud, ubiquitous: false))
+        XCTAssertEqual(try Data(contentsOf: outside), jpeg)
+        XCTAssertEqual(try Data(contentsOf: media), mediaBefore)
+    }
+
+    func testValidButMismatchedJPEGIsHiddenUntilWinningCoverIsRepaired() async throws {
+        let cloud = try temporaryDirectory()
+        let manager = try makeManager(withVideo: true)
+        let record = try XCTUnwrap(manager.records.first)
+        let metadata = VideoMetadataStore(rootDirectory: manager.rootDirectory)
+        try metadata.setCoverFrameSeconds(1, for: record.id)
+        let sync = makeController(manager, cloud: cloud, metadata: metadata)
+        await sync.refreshAccount()
+        let package = CloudVideoFiles.packageURL(record.id, container: cloud)
+        let manifest = try CloudVideoArchive.readManifest(at: package)
+        let selected = try XCTUnwrap(metadata.metadata(for: record.id))
+        let correctJPEG = try XCTUnwrap(CloudVideoArchive.thumbnailData(at: package))
+        let local = try XCTUnwrap(manager.localURL(for: record))
+        let differentFrame = await LocalVideoThumbnailRenderer.frameJPEG(url: local, seconds: 4, duration: record.duration)
+        let differentJPEG = try XCTUnwrap(differentFrame)
+        XCTAssertNotEqual(differentJPEG, correctJPEG)
+        let preview = package.appendingPathComponent(CloudVideoArchive.thumbnailFilename)
+        // Reproduce independent iCloud file arrival: a valid JPEG from a different revision.
+        try differentJPEG.write(to: preview, options: .atomic)
+        XCTAssertEqual(try CloudVideoArchive.thumbnailData(at: package), differentJPEG, "The replacement must still be a valid JPEG.")
+        XCTAssertFalse(try CloudVideoFiles.hasCurrentCover(metadata: selected, manifest: manifest, container: cloud, ubiquitous: false))
+        let pending = try CloudVideoFiles.snapshot(container: cloud, metadataURLs: [], ubiquitous: false)
+        XCTAssertNil(pending.entries.first(where: { $0.id == record.id })?.thumbnail,
+            "A cloud-only list must not display a frame that contradicts the marker.")
+        XCTAssertTrue(try CloudVideoFiles.updateCover(thumbnailJPEG: correctJPEG, metadata: selected, manifest: manifest,
+            container: cloud, ubiquitous: false), "The already-current branch must also verify the JPEG hash.")
+        XCTAssertTrue(try CloudVideoFiles.hasCurrentCover(metadata: selected, manifest: manifest, container: cloud, ubiquitous: false))
+        let repaired = try CloudVideoFiles.snapshot(container: cloud, metadataURLs: [], ubiquitous: false)
+        XCTAssertEqual(repaired.entries.first(where: { $0.id == record.id })?.thumbnail, correctJPEG)
+        XCTAssertFalse(try CloudVideoFiles.updateCover(thumbnailJPEG: differentJPEG, metadata: selected, manifest: manifest,
+            container: cloud, ubiquitous: false), "A complete matching pair stays unchanged, even if another renderer encoded different bytes.")
+        XCTAssertEqual(try CloudVideoArchive.thumbnailData(at: package), correctJPEG)
+    }
+
+    func testLegacyMarkerWithoutJPEGHashNeedsRepairBeforePreviewIsShown() async throws {
+        let cloud = try temporaryDirectory()
+        let manager = try makeManager(withVideo: true)
+        let id = try XCTUnwrap(manager.records.first?.id)
+        let metadata = VideoMetadataStore(rootDirectory: manager.rootDirectory)
+        try metadata.setCoverFrameSeconds(1, for: id)
+        let sync = makeController(manager, cloud: cloud, metadata: metadata)
+        await sync.refreshAccount()
+        let package = CloudVideoFiles.packageURL(id, container: cloud)
+        let manifest = try CloudVideoArchive.readManifest(at: package)
+        let jpeg = try XCTUnwrap(CloudVideoArchive.thumbnailData(at: package))
+        let annotation = try XCTUnwrap(metadata.metadata(for: id))
+        let marker = package.appendingPathComponent(CloudVideoFiles.coverRevisionFilename)
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: marker)) as? [String: Any])
+        legacy.removeValue(forKey: "thumbnailSHA256")
+        legacy["schemaVersion"] = 1
+        try JSONSerialization.data(withJSONObject: legacy).write(to: marker, options: .atomic)
+        XCTAssertFalse(try CloudVideoFiles.hasCurrentCover(metadata: annotation, manifest: manifest, container: cloud, ubiquitous: false))
+        let pending = try CloudVideoFiles.snapshot(container: cloud, metadataURLs: [], ubiquitous: false)
+        XCTAssertNil(pending.entries.first(where: { $0.id == id })?.thumbnail)
+        XCTAssertTrue(try CloudVideoFiles.updateCover(thumbnailJPEG: jpeg, metadata: annotation, manifest: manifest,
+            container: cloud, ubiquitous: false))
+        let repaired = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: marker)) as? [String: Any])
+        XCTAssertEqual(repaired["schemaVersion"] as? Int, 2)
+        XCTAssertEqual((repaired["thumbnailSHA256"] as? String)?.count, 64)
+        XCTAssertTrue(try CloudVideoFiles.hasCurrentCover(metadata: annotation, manifest: manifest, container: cloud, ubiquitous: false))
+        // NSFileVersion conflict creation is not deterministic in a local temporary container;
+        // native iCloud conflict delivery remains a separate device acceptance check.
     }
 
     func testInvalidMetadataFileDoesNotBlockCloudVideoRestore() async throws {

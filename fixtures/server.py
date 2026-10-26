@@ -68,6 +68,8 @@ def popup_page(method="GET", marker_received=False):
 
 
 def html_for(path):
+    if path == "/cover-timeline":
+        return page("封面选帧 · 黑红绿蓝", player("/media/cover-timeline.mp4"))
     if path == "/batch":
         return page("批量下载测试", '<p>本页只用于隔离资料中的合成任务回归。</p>')
     direct = {"/direct": ("直接视频 · 8 秒有声", "/media/direct.mp4"), "/hls": ("HLS · 两档画质", "/media/hls/master.m3u8"), "/hls-separate": ("HLS · 独立音轨", "/media/hls-separate/master.m3u8"), "/expired": ("已过期的链接", "/expired.mp4?expires=1"), "/forbidden": ("服务器拒绝访问", "/forbidden.mp4"), "/head-denied": ("只拒绝 HEAD 请求", "/head-denied.mp4"), "/context-frame": ("需要播放器请求上下文", "/context-required.mp4"), "/silent": ("无音轨视频 · 8 秒", "/media/silent.mp4"), "/corrupt": ("损坏的视频", "/media/corrupt.mp4"), "/slow": ("慢速传输 · 可测试取消与恢复", "/slow.mp4"), "/protected": ("受保护标记 · 仅识别测试", "/media/protected/index.m3u8")}
