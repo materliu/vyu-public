@@ -12,6 +12,12 @@ Cookie 和恢复数据只能留在本机受保护目录，不记录、导出或�
 
 `project.yml` 是工程配置来源，`Config/Build.xcconfig` 提供公共默认值；个人签名值只放在被忽略的 `Config/Local.xcconfig` 中，通过 `VYU_` 变量在构建时展开。不要把实际团队值写进 YAML 或生成工程。`App/VYu.entitlements` 是手工维护的权限模板，不由 XcodeGen 覆盖。增删源文件后执行 `xcodegen generate`，将生成的 `VYu.xcodeproj` 一起更新。开发生成物写入 `work/`；用户交付物写入 `outputs/`。不把测试媒体、构建目录或签名材料提交到 Git。
 
+## 开发缓存
+
+- 同一用途的构建复用已有 `work/` 目录，避免为每次尝试新增构建树或模块缓存。最新安装包与验收摘要放在 `outputs/`，不要长期保留重复的打包中间目录。
+- 产生构建或测试缓存的任务结束、相关进程退出后，先运行 `python3 scripts/clean_dev_cache.py` 查看清单，再运行 `python3 scripts/clean_dev_cache.py --apply` 清理已识别的开发缓存。默认保留最新一份模拟器构建目录、一份真机构建目录和两份测试结果包；命令失败或提示占用时保留目标并报告原因。
+- 清理范围仅限脚本验证过的 `work/` 生成物。保留源码、复现实验材料、签名配置、备份、`outputs/`、模拟器和真机资料；不使用 `git clean -fdX`，不按目录大小删除未知内容。
+
 面对用户的文案遵循全局 unslop 约定。区分源码实现、模拟器验证和真机验收，不把受控测试成功描述成所有站点均支持。
 
 ## Git 同步

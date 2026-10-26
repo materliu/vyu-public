@@ -201,6 +201,25 @@ xcodebuild -project VYu.xcodeproj -scheme VYu \
 
 仓库暂未提供公开演示截图。可在模拟器中的 V语 打开 `http://127.0.0.1:8765/direct` 体验下载，或打开 `/video-card-titles`、`/multiple-videos`、`/slow` 对应页面查看标题、多视频选择和暂停操作。所有示例均为合成素材。
 
+## 开发缓存清理
+
+构建时复用同一用途的 `work/` 目录。构建和测试全部结束后，先查看可清理清单，再执行清理：
+
+```sh
+python3 scripts/clean_dev_cache.py
+python3 scripts/clean_dev_cache.py --apply
+```
+
+脚本只处理 `work/` 顶层中能确认的构建树、编译模块缓存和测试结果包。默认保留最新一份模拟器构建目录、一份真机构建目录及两份 `.xcresult`；`--keep-results N` 可调整测试结果包保留数。旧缓存删除后，需要时会重新生成。
+
+删除前检查 Git 跟踪与忽略状态、符号链接、构建进程和文件占用；检查失败时不删除。源码副本、未识别目录、本机签名配置、备份、`outputs/`、模拟器和手机数据均保留。脚本不会定时运行，每次开发任务结束后按工程约定执行。
+
+清理工具自身的测试不需要启动 iOS 模拟器或媒体服务：
+
+```sh
+python3 scripts/test_clean_dev_cache.py
+```
+
 ## 项目结构
 
 ```text
