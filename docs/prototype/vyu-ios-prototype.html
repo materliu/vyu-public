@@ -1,0 +1,179 @@
+<style>
+#vyu-prototype {font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC",sans-serif; color-scheme:light dark;}
+#vyu-prototype * {box-sizing:border-box;}
+#vyu-prototype .v-stage {padding:28px 12px 20px; min-height:846px; display:flex; flex-direction:column; align-items:center; gap:14px;}
+#vyu-prototype .v-preview-label {font-size:12px; color:light-dark(#6b716e,#adb7b2); letter-spacing:.6px;}
+#vyu-prototype .v-phone {--v-bg:light-dark(#f5f6f1,#131816);--v-paper:light-dark(#fff,#1c2420);--v-ink:light-dark(#142b23,#eff6f0);--v-sub:light-dark(#6f7d75,#a8b7ad);--v-line:light-dark(#e2e8df,#344139);--v-tint:light-dark(#e6eee2,#263d30);--v-green:light-dark(#245f45,#a4d6b0);--v-on:light-dark(#fff,#152d21); width:390px; max-width:100%; height:780px; border:1px solid light-dark(#bac4bb,#526159); border-radius:44px; overflow:hidden; background:var(--v-bg); color:var(--v-ink); box-shadow:0 18px 45px light-dark(#233b2317,#0005); position:relative; display:flex; flex-direction:column; font-size:14px; line-height:1.45;}
+#vyu-prototype .v-phone button {font:inherit; color:inherit; border:0; background:none; padding:0; min-height:44px; cursor:pointer;}
+#vyu-prototype .v-phone input {font:inherit; color:inherit;}
+#vyu-prototype .v-phone button:focus-visible,#vyu-prototype .v-phone input:focus-visible {outline:2px solid var(--v-green);outline-offset:3px;}
+#vyu-prototype .v-phone svg {width:20px;height:20px;stroke-width:1.7; flex-shrink:0;}
+#vyu-prototype .v-status {height:46px;flex-shrink:0; display:flex;align-items:center;justify-content:space-between;padding:7px 27px 0;font-size:14px;font-weight:600;}
+#vyu-prototype .v-island {background:light-dark(#18221c,#050806);width:100px;height:26px;border-radius:20px;position:absolute;left:50%;transform:translateX(-50%);top:12px;}
+#vyu-prototype .v-status-right {display:flex;gap:5px;align-items:center;}
+#vyu-prototype .v-status-right svg {width:16px;height:16px;}
+#vyu-prototype .v-screen {flex:1;min-height:0;display:flex;flex-direction:column;position:relative;}
+#vyu-prototype .v-top {height:64px;padding:4px 21px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+#vyu-prototype .v-brand {display:flex;gap:8px;align-items:center;font-size:23px;font-weight:650;letter-spacing:-.8px;}
+#vyu-prototype .v-logo {font-family:Georgia,serif;font-size:27px;font-style:italic;color:var(--v-green);}
+#vyu-prototype .v-top .v-title {font-size:25px;font-weight:650;letter-spacing:-.5px;}
+#vyu-prototype .v-icon {display:inline-flex;align-items:center;justify-content:center;min-width:42px;}
+#vyu-prototype .v-top-actions {display:flex;align-items:center;gap:2px;}
+#vyu-prototype .v-scroll {flex:1;min-height:0;overflow:auto;scrollbar-width:none;padding:0 21px 20px;}
+#vyu-prototype .v-scroll::-webkit-scrollbar {display:none;}
+#vyu-prototype .v-address {display:flex;align-items:center;gap:9px;min-width:0;padding:0 13px!important;width:100%;background:var(--v-paper)!important;border:1px solid var(--v-line)!important;border-radius:15px;min-height:46px!important;}
+#vyu-prototype .v-address span {flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#vyu-prototype .v-address svg {width:16px;height:16px;color:var(--v-sub);}
+#vyu-prototype .v-address-caption {font-size:11px;color:var(--v-sub);margin:7px 3px 0;}
+#vyu-prototype .v-section-head {display:flex;align-items:center;justify-content:space-between;margin:24px 0 11px;font-size:16px;font-weight:600;}
+#vyu-prototype .v-section-head span {font-size:12px;color:var(--v-sub);font-weight:400;}
+#vyu-prototype .v-sites {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;}
+#vyu-prototype .v-site {background:var(--v-paper)!important;border-radius:18px;padding:12px 5px!important;text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px;min-height:96px!important;font-size:12px!important;}
+#vyu-prototype .v-site-mark {width:35px;height:35px;display:grid;place-items:center;background:var(--v-tint);color:var(--v-green);border-radius:11px;font-size:18px;font-weight:600;}
+#vyu-prototype .v-recent {display:flex;align-items:center;gap:12px;width:100%;padding:11px 0!important;border-bottom:1px solid var(--v-line)!important;text-align:left;}
+#vyu-prototype .v-recent-copy {flex:1;min-width:0;}
+#vyu-prototype .v-recent-copy strong {display:block;font-size:14px;font-weight:500;}
+#vyu-prototype .v-recent-copy small {display:block;color:var(--v-sub);font-size:12px;margin-top:2px;}
+#vyu-prototype .v-hero {padding:20px 0 4px;}
+#vyu-prototype .v-kicker {font-size:11px;letter-spacing:1.8px;color:var(--v-sub);text-transform:uppercase;}
+#vyu-prototype .v-hero h2 {margin:5px 0 17px;font-size:29px;letter-spacing:-1px;line-height:1.3;font-weight:600;}
+#vyu-prototype .v-art {position:relative;overflow:hidden;border-radius:17px;aspect-ratio:16/9;display:flex;align-items:flex-end;padding:17px;color:#fff;background:#38584b;isolation:isolate;}
+#vyu-prototype .v-art::before {content:"";position:absolute;inset:0;z-index:-1;background:radial-gradient(ellipse at 72% 20%,#ffe3a5 0 9%,transparent 9.4%),linear-gradient(158deg,transparent 47%,#6f8c6c 47.4% 64%,transparent 64.4%),linear-gradient(25deg,#1c3933 0 40%,#405e4b 40.4% 53%,#a7b19b 53.4% 65%,#d6d6b4 65.4%);}
+#vyu-prototype .v-art.city::before {background:linear-gradient(90deg,transparent 10%,#303e44 10.5% 18%,transparent 18.5% 27%,#40535b 27.5% 36%,transparent 36.5% 52%,#253d4a 52.5% 65%,transparent 65.5%),linear-gradient(0deg,#27383e 0 15%,transparent 15.5%),linear-gradient(155deg,#c7b7a1,#798e9b);background-size:100% 65%,100% 100%,100% 100%;background-position:bottom;background-repeat:no-repeat;}
+#vyu-prototype .v-art.talk::before {background:radial-gradient(ellipse at 35% 45%,#c4b395 0 14%,transparent 14.5%),radial-gradient(ellipse at 65% 43%,#a49a82 0 14%,transparent 14.5%),linear-gradient(140deg,#344a41,#968d76);}
+#vyu-prototype .v-art::after {content:"";position:absolute;inset:50% 0 0;background:linear-gradient(transparent,#12251d9c);z-index:-1;}
+#vyu-prototype .v-art-title {font-family:Georgia,"Songti SC",serif;font-size:26px;line-height:1.2;letter-spacing:1px;text-align:left;}
+#vyu-prototype .v-duration {position:absolute;right:10px;bottom:10px;font-size:11px;background:#16251cc9;border-radius:5px;padding:2px 5px;font-variant-numeric:tabular-nums;}
+#vyu-prototype .v-play {width:49px;height:49px;border-radius:50%;background:#ffffffeb;display:flex;align-items:center;justify-content:center;color:#203d2f;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);}
+#vyu-prototype .v-feature {display:block;width:100%;text-align:left;}
+#vyu-prototype .v-feature strong {display:block;font-size:16px;font-weight:600;margin:11px 0 3px;}
+#vyu-prototype .v-meta {color:var(--v-sub);font-size:12px;}
+#vyu-prototype .v-webbar {display:flex;align-items:center;justify-content:space-between;padding:16px 0 12px;}
+#vyu-prototype .v-webbrand {font-family:Georgia,"Songti SC",serif;font-size:20px;font-weight:600;}
+#vyu-prototype .v-badge {font-size:10px;border:1px solid var(--v-line);border-radius:4px;color:var(--v-sub);padding:2px 4px;}
+#vyu-prototype .v-webnav {display:flex;gap:18px;font-size:12px;color:var(--v-sub);margin-bottom:15px;}
+#vyu-prototype .v-webnav .active {color:var(--v-ink);border-bottom:2px solid var(--v-green);padding-bottom:5px;}
+#vyu-prototype .v-web h1 {font-size:21px;font-weight:600;line-height:1.45;margin:16px 0 6px;letter-spacing:-.4px;}
+#vyu-prototype .v-byline {display:flex;gap:10px;align-items:center;margin:16px 0;}
+#vyu-prototype .v-avatar {height:33px;width:33px;border-radius:50%;display:grid;place-items:center;background:var(--v-tint);color:var(--v-green);font-family:Georgia,serif;}
+#vyu-prototype .v-description {font-size:13px;color:var(--v-sub);line-height:1.7;padding-top:14px;border-top:1px solid var(--v-line);}
+#vyu-prototype .v-tools {background:var(--v-paper);border-top:1px solid var(--v-line);padding:11px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0;}
+#vyu-prototype .v-save {display:flex;gap:7px;align-items:center;font-size:13px!important;}
+#vyu-prototype .v-primary {background:var(--v-green)!important;color:var(--v-on)!important;border-radius:13px;padding:0 17px!important;min-height:45px!important;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:500!important;}
+#vyu-prototype .v-secondary {background:var(--v-tint)!important;color:var(--v-green)!important;border-radius:13px;padding:0 16px!important;min-height:44px!important;display:flex;align-items:center;justify-content:center;gap:7px;}
+#vyu-prototype .v-full {width:100%;}
+#vyu-prototype .v-tabs {display:flex;background:var(--v-paper);border-top:1px solid var(--v-line);padding:6px 14px 7px;flex-shrink:0;}
+#vyu-prototype .v-tab {flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:10px!important;color:var(--v-sub)!important;min-height:47px!important;position:relative;}
+#vyu-prototype .v-tab.selected {color:var(--v-green)!important;}
+#vyu-prototype .v-tab svg {width:22px;height:22px;}
+#vyu-prototype .v-dot {position:absolute;width:5px;height:5px;border-radius:50%;background:var(--v-green);top:4px;left:calc(50% + 11px);}
+#vyu-prototype .v-homebar {height:19px;background:var(--v-paper);flex-shrink:0;display:flex;justify-content:center;align-items:center;}
+#vyu-prototype .v-homebar::after {content:"";height:4px;width:110px;border-radius:5px;background:var(--v-ink);}
+#vyu-prototype .v-row {display:flex;gap:12px;padding:15px 0;border-bottom:1px solid var(--v-line);align-items:flex-start;}
+#vyu-prototype .v-row .v-art {width:104px;flex-shrink:0;aspect-ratio:1.35;border-radius:10px;padding:8px;}
+#vyu-prototype .v-row .v-art-title {font-size:15px;}
+#vyu-prototype .v-row .v-duration {font-size:9px;right:5px;bottom:4px;}
+#vyu-prototype .v-row-copy {flex:1;min-width:0;}
+#vyu-prototype .v-row-title {font-size:14px;font-weight:500;line-height:1.45;display:block;}
+#vyu-prototype .v-row-copy .v-meta {margin:4px 0 5px;font-size:11px;}
+#vyu-prototype .v-small-action {color:var(--v-green)!important;font-size:12px!important;min-height:30px!important;display:inline-flex;gap:5px;align-items:center;}
+#vyu-prototype .v-small-action svg {width:14px;height:14px;}
+#vyu-prototype .v-progress {background:var(--v-tint);height:4px;border-radius:3px;overflow:hidden;margin:10px 0 5px;}
+#vyu-prototype .v-progress div {height:100%;background:var(--v-green);border-radius:3px;transition:width .25s;}
+#vyu-prototype .v-subheading {font-size:12px;color:var(--v-sub);margin:3px 0 14px;}
+#vyu-prototype .v-filters {display:flex;gap:7px;margin:4px 0 10px;}
+#vyu-prototype .v-filter {padding:0 13px!important;min-height:33px!important;background:var(--v-paper)!important;border-radius:10px;font-size:12px!important;}
+#vyu-prototype .v-filter.selected {background:var(--v-ink)!important;color:var(--v-paper)!important;}
+#vyu-prototype .v-empty {padding:56px 10px;text-align:center;color:var(--v-sub);font-size:13px;}
+#vyu-prototype .v-overlay {position:absolute;inset:0;background:#071a1459;z-index:8;display:flex;align-items:flex-end;}
+#vyu-prototype .v-sheet {background:var(--v-paper);border-radius:27px 27px 0 0;width:100%;padding:9px 22px 30px;box-shadow:0 -12px 30px #00000012;}
+#vyu-prototype .v-grabber {width:32px;height:4px;border-radius:5px;background:var(--v-line);margin:0 auto 14px;}
+#vyu-prototype .v-sheet-head {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:15px;}
+#vyu-prototype .v-sheet h2 {font-size:22px;letter-spacing:-.5px;margin:0;font-weight:600;}
+#vyu-prototype .v-sheet .v-row {padding:0 0 17px;border:0;margin-bottom:3px;}
+#vyu-prototype .v-option {display:flex;align-items:center;justify-content:space-between;width:100%;padding:12px 14px!important;background:var(--v-bg)!important;border-radius:13px;margin-bottom:8px;border:1px solid transparent!important;text-align:left;}
+#vyu-prototype .v-option.selected {border-color:var(--v-green)!important;background:var(--v-tint)!important;}
+#vyu-prototype .v-option small {display:block;color:var(--v-sub);font-size:11px;margin-top:2px;}
+#vyu-prototype .v-option svg {width:19px;height:19px;color:var(--v-green);}
+#vyu-prototype .v-toggle-row {display:flex;align-items:center;justify-content:space-between;gap:12px;margin:17px 0 23px;font-size:13px;}
+#vyu-prototype .v-toggle-row input {width:36px;height:22px;accent-color:var(--v-green);}
+#vyu-prototype .v-sheet p {font-size:13px;color:var(--v-sub);line-height:1.7;}
+#vyu-prototype .v-field {background:var(--v-bg);border:1px solid var(--v-line);border-radius:12px;padding:12px;width:100%;font-size:16px!important;margin-bottom:16px;}
+#vyu-prototype .v-sheet .v-label {font-size:12px;color:var(--v-sub);margin:15px 0 7px;display:block;}
+#vyu-prototype .v-toast {position:absolute;bottom:93px;left:25px;right:25px;background:var(--v-ink);color:var(--v-paper);padding:11px 14px;border-radius:13px;font-size:12px;z-index:12;text-align:center;box-shadow:0 4px 20px #0002;}
+#vyu-prototype .v-player {position:absolute;inset:0;z-index:9;background:#11251d;color:#fff;display:flex;flex-direction:column;padding:10px 20px 25px;}
+#vyu-prototype .v-player-top {display:flex;align-items:center;justify-content:space-between;font-size:12px;}
+#vyu-prototype .v-player .v-art {margin:auto -20px 0;aspect-ratio:16/10;border-radius:0;}
+#vyu-prototype .v-player h2 {font-size:20px;margin:20px 0 5px;}
+#vyu-prototype .v-player p {color:#c4d5c9;font-size:12px;margin:0;}
+#vyu-prototype .v-player input {width:100%;accent-color:#acd3ae;margin:24px 0 4px;}
+#vyu-prototype .v-player-times {display:flex;justify-content:space-between;color:#c4d5c9;font-size:11px;}
+#vyu-prototype .v-player-controls {display:flex;justify-content:space-evenly;align-items:center;margin:23px 0 auto;}
+#vyu-prototype .v-player-controls .v-main-play {width:62px;height:62px;border-radius:50%;background:#e4efdf!important;color:#143c29!important;}
+#vyu-prototype .v-player-controls .v-main-play svg {width:26px;height:26px;}
+#vyu-prototype .v-player-foot {text-align:center;color:#c4d5c9;font-size:11px;margin-top:25px;}
+#vyu-prototype .v-delete {color:light-dark(#b54036,#f1998a)!important;}
+@media(max-width:400px){#vyu-prototype .v-stage{padding:16px 0;min-height:826px}#vyu-prototype .v-phone{border-radius:32px}#vyu-prototype .v-scroll{padding-left:17px;padding-right:17px}#vyu-prototype .v-art-title{font-size:23px}}
+@media(prefers-reduced-motion:reduce){#vyu-prototype .v-progress div{transition:none}}
+</style>
+<div id="vyu-prototype">
+ <div class="viz-carousel viz-dotted-background" aria-label="V语 iPhone 原型方案" data-previous-label="上一方案" data-next-label="下一方案">
+  <section data-variant="网页优先" aria-label="网页优先方案"><div class="v-stage"><div class="v-preview-label">V语 · iPHONE 原型 · 示例内容</div><div class="v-phone" id="vyu-browser" aria-label="网页优先 iPhone 界面"></div></div></section>
+  <section data-variant="收藏优先" aria-label="收藏优先方案" hidden><div class="v-stage"><div class="v-preview-label">V语 · iPHONE 原型 · 示例内容</div><div class="v-phone" id="vyu-collection" aria-label="收藏优先 iPhone 界面"></div></div></section>
+ </div>
+</div>
+<script>
+(()=>{
+ const root=document.getElementById('vyu-prototype');
+ const icon=(name)=>`<i data-lucide="${name}" aria-hidden="true"></i>`;
+ const esc=(s)=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const videos=[{id:'mountain',title:'把一天，留给山野',artist:'山海影像',duration:'18:42',art:'',cover:'山野之间',size:146},{id:'city',title:'东京清晨，城市醒来之前',artist:'步行档案',duration:'24:16',art:'city',cover:'晨间东京',size:182},{id:'talk',title:'我们如何度过有限的时间',artist:'观止',duration:'36:08',art:'talk',cover:'关于时间',size:224}];
+ const phones=[];
+ const saved=window.openai?.widgetState?.privateContent?.phones;
+ const art=(v,play=false)=>`<div class="v-art ${v.art}"><div class="v-art-title">${v.cover}</div>${play?`<span class="v-play">${icon('play')}</span>`:''}<span class="v-duration">${v.duration}</span></div>`;
+ class Phone {
+  constructor(id,mode,index){this.el=root.querySelector('#'+id);this.index=index;this.mode=mode;this.s={page:mode==='browser'?'browse':'home',site:'video.example',current:'mountain',favs:['talk'],locals:['city'],filter:'all',progress:null,paused:false,sheet:null,quality:'720p',wifi:true,sites:['video.example','youtube.com'],starredSites:['video.example'],downloadID:null,localSizes:{city:182},playing:false,position:31,theme:'system',availability:'available'};
+   if(saved?.[index]) this.restore(saved[index]);
+   this.el.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(b)this.act(b.dataset.action,b.dataset.id)});
+   this.el.addEventListener('change',e=>{if(e.target.dataset.change==='wifi'){this.s.wifi=e.target.checked;this.save()}if(e.target.dataset.change==='seek'){this.s.position=Number(e.target.value);this.render();this.save()}});
+   this.render();
+   if(globalThis.Tweak){const tweak=new Tweak({container:this.el,onChange:()=>this.render()});tweak.addSelect(this.s,'theme',{label:'外观',options:[{label:'跟随系统',value:'system'},{label:'浅色',value:'light'},{label:'深色',value:'dark'}]});tweak.addSelect(this.s,'availability',{label:'视频下载状态',options:[{label:'可下载',value:'available'},{label:'需要站点登录',value:'login'},{label:'暂不支持',value:'unsupported'}]});}
+  }
+  restore(x){if(!x||typeof x!=='object')return;for(const k of ['page','current','filter','quality','theme','availability'])if(typeof x[k]==='string'&&x[k].length<40)this.s[k]=x[k];for(const k of ['favs','locals'])if(Array.isArray(x[k]))this.s[k]=x[k].filter(id=>videos.some(v=>v.id===id));if(Array.isArray(x.sites))this.s.sites=x.sites.filter(s=>typeof s==='string'&&s.length<100).slice(0,8);if(Array.isArray(x.starredSites))this.s.starredSites=x.starredSites.filter(s=>typeof s==='string'&&s.length<100).slice(0,8);if(typeof x.site==='string'&&x.site.length<100)this.s.site=x.site;this.s.sheet=null;this.s.progress=null;}
+  save(){if(!window.openai?.setWidgetState)return;window.openai.setWidgetState({modelContent:{project:'V语',platform:'iOS',siteScope:'任意视频站点',variants:phones.map(p=>({layout:p.mode,page:p.s.page,savedVideos:p.s.favs.length,offlineVideos:p.s.locals.length,downloadState:p.s.availability}))},privateContent:{phones:phones.map(p=>p.s)}}).catch(()=>{});}
+  v(){return videos.find(v=>v.id===this.s.current)||videos[0]}
+  top(title){return `<div class="v-top">${title?`<span class="v-title">${title}</span>`:`<span class="v-brand"><span class="v-logo">V</span>语</span>`}<div class="v-top-actions"><button class="v-icon" aria-label="打开地址栏" data-action="address">${icon('search')}</button><button class="v-icon" aria-label="设置" data-action="settings">${icon('sliders-horizontal')}</button></div></div>`;}
+  address(){return `<button class="v-address" data-action="address" aria-label="输入网址或选择站点">${icon('lock-keyhole')}<span>${esc(this.s.site)}</span>${icon('chevron-down')}</button>`;}
+  tabs(){const selected=['browse','video','home'].includes(this.s.page)?'home':this.s.page;return `<div class="v-tabs">${[['home','compass','浏览'],['favorites','bookmark','收藏'],['offline','download','离线']].map(([p,i,t])=>`<button class="v-tab ${selected===p?'selected':''}" data-action="tab" data-id="${p}" aria-label="${t}" aria-pressed="${selected===p}">${icon(i)}<span>${t}</span>${p==='offline'&&this.s.progress!==null?'<b class="v-dot"></b>':''}</button>`).join('')}</div><div class="v-homebar"></div>`;}
+  home(){return `${this.top()}<div class="v-scroll"><div class="v-hero"><div class="v-kicker">YOUR LITTLE VIDEO SPACE</div><h2>想看什么，<br>就去逛逛。</h2></div><button class="v-address" data-action="address">${icon('search')}<span>输入网址，打开视频站点</span>${icon('arrow-up-right')}</button><div class="v-section-head">常去的站点<span>自动记住</span></div><div class="v-sites">${this.s.sites.slice(0,2).map(s=>`<button class="v-site" data-action="site" data-id="${esc(s)}"><span class="v-site-mark">${s==='video.example'?'山':icon('play')}</span>${s==='video.example'?'山海影像':esc(s.replace('www.',''))}</button>`).join('')}<button class="v-site" data-action="address"><span class="v-site-mark">${icon('plus')}</span>添加站点</button></div><div class="v-section-head">接着看<span>已保存到本机</span></div><button class="v-feature" data-action="play" data-id="city">${art(videos[1],true)}<strong>${videos[1].title}</strong><div class="v-progress"><div style="width:31%"></div></div><div class="v-meta">已看 7 分钟 · 还有 17 分钟</div></button></div>`;}
+  browse(){return `${this.top()}<div class="v-scroll v-web">${this.address()}<div class="v-webbar"><span class="v-webbrand">${this.s.site==='video.example'?'山海影像':esc(this.s.site)}</span><span class="v-badge">站点页面示意</span></div><div class="v-webnav"><span class="active">发现</span><span>旅行</span><span>人物</span><span>收藏集</span></div><button class="v-feature" data-action="video" data-id="mountain">${art(videos[0],true)}<strong>${videos[0].title}</strong><div class="v-meta">${videos[0].artist} · 18 分钟</div></button><div class="v-section-head">继续探索</div>${this.row(videos[2],'video')}</div><div class="v-tools"><button class="v-icon" data-action="tab" data-id="home" aria-label="返回起始页">${icon('chevron-left')}</button><button class="v-save" data-action="save-site">${icon('bookmark-plus')}收藏站点</button><button class="v-icon" data-action="refresh" aria-label="刷新页面">${icon('rotate-cw')}</button></div>`;}
+  detail(){const v=this.v(),fav=this.s.favs.includes(v.id),local=this.s.locals.includes(v.id);return `<div class="v-top"><button class="v-icon" data-action="back" aria-label="返回网页">${icon('chevron-left')}</button><div class="v-brand" style="font-size:17px"><span class="v-logo" style="font-size:22px">V</span>语</div><button class="v-icon" data-action="address" aria-label="地址栏">${icon('ellipsis')}</button></div><div class="v-scroll v-web">${this.address()}<div class="v-webbar"><span class="v-webbrand">${esc(this.s.site==='video.example'?'山海影像':this.s.site)}</span><span class="v-badge">站点页面示意</span></div><button class="v-feature" data-action="web-play">${art(v,true)}</button><h1>${v.title}</h1><div class="v-meta">${v.duration} · 4K 影像</div><div class="v-byline"><span class="v-avatar">${v.artist[0]}</span><div><strong style="font-weight:500">${v.artist}</strong><div class="v-meta">视频创作者</div></div></div><div class="v-description">离开熟悉的街道，走进山林、城市和日常生活。把值得再看的片刻留给自己。</div></div><div class="v-tools"><button class="v-save" data-action="favorite">${icon(fav?'bookmark-check':'bookmark')}${fav?'已收藏':'收藏视频'}</button><button class="v-primary" data-action="${local?'play':'download'}" data-id="${v.id}">${icon(local?'play':'download')}${local?'离线播放':'下载此视频'}</button></div>`;}
+  row(v,action='video',offline=false){return `<div class="v-row"><button data-action="${action}" data-id="${v.id}" aria-label="${v.title}">${art(v)}</button><div class="v-row-copy"><span class="v-row-title">${v.title}</span><div class="v-meta">${v.artist}${offline?' · '+(this.s.localSizes[v.id]||v.size)+' MB':''}</div><button class="v-small-action" data-action="${action}" data-id="${v.id}">${icon(offline?'play':'arrow-up-right')}${offline?'从上次位置继续':'打开原网页'}</button></div><button class="v-icon" aria-label="管理 ${v.title}" data-action="manage" data-id="${v.id}" style="min-width:25px">${icon('ellipsis')}</button></div>`;}
+  favorites(){let list=videos.filter(v=>this.s.favs.includes(v.id));return `${this.top('收藏')}<div class="v-scroll"><div class="v-subheading">喜欢的内容，不用再找一次。</div><div class="v-filters">${[['all','视频'],['sites','站点']].map(([id,t])=>`<button class="v-filter ${this.s.filter===id?'selected':''}" data-action="filter" data-id="${id}">${t}</button>`).join('')}</div>${this.s.filter==='sites'?this.s.starredSites.map(s=>`<button class="v-recent" data-action="site" data-id="${esc(s)}"><span class="v-site-mark">${icon('globe-2')}</span><span class="v-recent-copy"><strong>${s==='video.example'?'山海影像':esc(s)}</strong><small>${esc(s)}</small></span>${icon('chevron-right')}</button>`).join(''):list.length?list.map(v=>this.row(v)).join(''):'<div class="v-empty">浏览视频时点「收藏视频」，<br>下次就能在这里找到。</div>'}</div>`;}
+  offline(){let local=videos.filter(v=>this.s.locals.includes(v.id)),v=videos.find(v=>v.id===this.s.downloadID)||this.v();return `${this.top('离线')}<div class="v-scroll"><div class="v-subheading">${local.length} 个视频 · 本机 ${local.reduce((n,v)=>n+(this.s.localSizes[v.id]||v.size),0)} MB</div>${this.s.progress!==null?`<div class="v-section-head">正在下载<span>${this.s.wifi?'仅无线局域网':'允许蜂窝网络'}</span></div><div class="v-row"><div>${art(v)}</div><div class="v-row-copy"><span class="v-row-title">${v.title}</span><div class="v-progress"><div style="width:${this.s.progress}%"></div></div><div class="v-meta">${this.s.paused?'已暂停':this.s.progress+'% · '+this.s.quality}</div><button class="v-small-action" data-action="pause">${icon(this.s.paused?'play':'pause')}${this.s.paused?'继续下载':'暂停下载'}</button></div></div>`:''}<div class="v-section-head">可离线观看<span>无需网络</span></div>${local.length?local.map(v=>this.row(v,'play',true)).join(''):'<div class="v-empty">下载完成的视频会出现在这里。</div>'}</div>`;}
+  sheet(){let v=this.v();const head=(t)=>`<div class="v-grabber"></div><div class="v-sheet-head"><h2>${t}</h2><button class="v-icon" data-action="close-sheet" aria-label="关闭">${icon('x')}</button></div>`;let body='';
+   if(this.s.sheet==='address')body=head('去一个站点')+`<label class="v-label" for="${this.el.id}-url">网址</label><input class="v-field" id="${this.el.id}-url" type="url" placeholder="输入任意视频站点网址" value="${this.s.site==='video.example'?'':esc('https://'+this.s.site)}"><button class="v-primary v-full" data-action="navigate">${icon('arrow-up-right')}打开站点</button><div class="v-section-head">最近访问</div>${this.s.sites.slice(0,4).map(s=>`<button class="v-recent" data-action="site" data-id="${esc(s)}">${icon('clock-3')}<span class="v-recent-copy"><strong>${s==='video.example'?'山海影像 · 示例站点':esc(s)}</strong><small>${esc(s)}</small></span>${icon('arrow-up-right')}</button>`).join('')}`;
+   if(this.s.sheet==='download')body=head('下载到 iPhone')+`<div class="v-row">${art(v)}<div class="v-row-copy"><span class="v-row-title">${v.title}</span><div class="v-meta">${v.duration} · 视频含声音</div></div></div>${[['1080p','高清','约 264 MB'],['720p','标准','约 '+v.size+' MB'],['480p','节省空间','约 82 MB']].map(([q,t,n])=>`<button class="v-option ${this.s.quality===q?'selected':''}" data-action="quality" data-id="${q}"><span>${q} · ${t}<small>${n}</small></span>${icon(this.s.quality===q?'circle-check':'circle')}</button>`).join('')}<label class="v-toggle-row">仅在无线局域网下载<input type="checkbox" data-change="wifi" ${this.s.wifi?'checked':''}></label><button class="v-primary v-full" data-action="start-download">${icon('download')}开始下载</button>`;
+   if(this.s.sheet==='unavailable')body=head(this.s.availability==='login'?'先登录这个站点':'暂时无法下载')+`<p>${this.s.availability==='login'?'请在站点页面登录，确认视频可以播放后，再检查下载。':'这个站点目前没有可保存的视频来源。你仍然可以观看网页，并收藏链接。'}</p><button class="v-primary v-full" data-action="save-unavailable">${icon('bookmark-plus')}收藏视频链接</button><button class="v-full" data-action="close-sheet">继续浏览</button>`;
+   if(this.s.sheet==='manage')body=head('管理视频')+`<p>${v.title}</p>${this.s.locals.includes(v.id)?'<button class="v-option" data-action="remove-cache"><span>删除本机缓存<small>保留收藏和观看位置</small></span>'+icon('hard-drive')+'</button>':''}<button class="v-option v-delete" data-action="remove-record"><span>移除视频记录<small>同时移除收藏和本机视频</small></span>${icon('trash-2')}</button><button class="v-full" data-action="close-sheet">取消</button>`;
+   if(this.s.sheet==='settings')body=head('V语')+`<label class="v-toggle-row">仅在无线局域网下载<input type="checkbox" data-change="wifi" ${this.s.wifi?'checked':''}></label><div class="v-option"><span>默认画质<small>${this.s.quality}</small></span>${icon('monitor-play')}</div><div class="v-option"><span>网页浏览与本机离线<small>站点登录与视频文件分别管理</small></span>${icon('smartphone')}</div><button class="v-primary v-full" data-action="close-sheet">完成</button>`;
+   return this.s.sheet?`<div class="v-overlay"><div class="v-sheet" role="dialog" aria-modal="true" aria-label="${this.s.sheet}">${body}</div></div>`:'';
+  }
+  player(){const v=this.v();const parts=v.duration.split(':').map(Number),seconds=Math.round((parts[0]*60+parts[1])*this.s.position/100),time=Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');return `<div class="v-player"><div class="v-player-top"><button class="v-icon" data-action="exit-player" aria-label="退出全屏">${icon('chevron-down')}</button><span>本机视频 · 离线播放</span><button class="v-icon" data-action="player-more" aria-label="播放设置">${icon('ellipsis')}</button></div>${art(v)}<h2>${v.title}</h2><p>${v.artist} · 720p</p><input type="range" min="0" max="100" value="${this.s.position}" data-change="seek" aria-label="播放进度"><div class="v-player-times"><span>${time}</span><span>${v.duration}</span></div><div class="v-player-controls"><button class="v-icon" data-action="rewind" aria-label="后退 15 秒">${icon('rotate-ccw')}</button><button class="v-icon v-main-play" data-action="toggle-play" aria-label="${this.s.playing?'暂停':'播放'}">${icon(this.s.playing?'pause':'play')}</button><button class="v-icon" data-action="forward" aria-label="前进 15 秒">${icon('rotate-cw')}</button></div><div class="v-player-foot">观看位置会自动保存</div></div>`;}
+  render(){this.el.style.colorScheme=this.s.theme==='system'?'light dark':this.s.theme;let content={home:()=>this.home(),browse:()=>this.browse(),video:()=>this.detail(),favorites:()=>this.favorites(),offline:()=>this.offline()}[this.s.page]||(()=>this.home());this.el.innerHTML=`<div class="v-status"><span>9:41</span><span class="v-island"></span><span class="v-status-right">${icon('signal')}${icon('wifi')}${icon('battery-full')}</span></div><div class="v-screen">${content()}${this.tabs()}${this.sheet()}${this.s.player?this.player():''}${this.toastText?`<div class="v-toast" role="status">${this.toastText}</div>`:''}</div>`;if(globalThis.lucide)lucide.createIcons({attrs:{width:20,height:20}});}
+  toast(t){this.toastText=t;clearTimeout(this.toastTimer);this.render();this.toastTimer=setTimeout(()=>{this.toastText=null;this.render()},2400);}
+  tick(){clearInterval(this.timer);this.timer=setInterval(()=>{if(this.s.paused||this.s.progress===null)return;this.s.progress=Math.min(100,this.s.progress+8);if(this.s.progress>=100){if(!this.s.locals.includes(this.s.downloadID))this.s.locals.push(this.s.downloadID);this.s.progress=null;clearInterval(this.timer);this.toast('下载完成，可以离线观看');this.save()}else this.render()},500);}
+  act(a,id){const s=this.s;if(a==='tab'){s.page=id;s.sheet=null}if(a==='address')s.sheet='address';if(a==='settings')s.sheet='settings';if(a==='site'){s.site=id;s.page='browse';s.sheet=null;s.sites=[id,...s.sites.filter(v=>v!==id)].slice(0,8)}
+   if(a==='navigate'){let value=this.el.querySelector('input[type=url]').value.trim();try{const u=new URL(value.includes('://')?value:'https://'+value);if(!['https:','http:'].includes(u.protocol)||!u.hostname.includes('.'))throw 0;s.site=u.hostname;s.sites=[s.site,...s.sites.filter(v=>v!==s.site)].slice(0,8);s.page='browse';s.sheet=null;this.toast('已切换站点示意，原型不会访问真实网站')}catch{this.toast('请填写完整的网址');return}}
+   if(a==='video'){s.current=id;s.page='video'}if(a==='back')s.page='browse';if(a==='refresh')this.toast('页面已刷新 · 原型演示');if(a==='save-site'){if(!s.starredSites.includes(s.site))s.starredSites.unshift(s.site);this.toast('已收藏这个站点')}if(a==='favorite'){const v=this.v();s.favs=s.favs.includes(v.id)?s.favs.filter(x=>x!==v.id):[v.id,...s.favs]}
+   if(a==='download'){s.current=id||s.current;s.sheet=s.availability==='available'&&s.site==='video.example'?'download':'unavailable'}if(a==='close-sheet')s.sheet=null;if(a==='quality')s.quality=id;if(a==='start-download'){s.sheet=null;s.page='offline';s.progress=0;s.paused=false;s.downloadID=s.current;s.localSizes[s.current]=s.quality==='1080p'?264:s.quality==='480p'?82:this.v().size;this.tick()}if(a==='pause')s.paused=!s.paused;if(a==='filter')s.filter=id;
+   if(a==='manage'){s.current=id;s.sheet='manage'}if(a==='remove-cache'){s.locals=s.locals.filter(v=>v!==s.current);s.sheet=null;this.toast('缓存已删除，收藏和观看位置保留')}if(a==='remove-record'){s.locals=s.locals.filter(v=>v!==s.current);s.favs=s.favs.filter(v=>v!==s.current);s.sheet=null;this.toast('视频记录已移除')}
+   if(a==='save-unavailable'){if(!s.favs.includes(s.current))s.favs.unshift(s.current);s.sheet=null;this.toast('已收藏视频链接')}
+   if(a==='play'){s.current=id||s.current;s.player=true;s.playing=false}if(a==='exit-player'){s.player=false;s.playing=false}if(a==='toggle-play')s.playing=!s.playing;if(a==='rewind')s.position=Math.max(0,s.position-1);if(a==='forward')s.position=Math.min(100,s.position+1);if(a==='web-play')this.toast('网页播放器示意；这里不会播放真实视频');if(a==='player-more')this.toast('原型演示：原生播放器支持横屏、倍速与画中画');
+   this.render();this.save();
+  }
+ }
+ phones.push(new Phone('vyu-browser','browser',0));phones.push(new Phone('vyu-collection','collection',1));
+ window.addEventListener('openai:set_globals',e=>{const states=e.detail?.globals?.widgetState?.privateContent?.phones;if(states)phones.forEach((p,i)=>{p.restore(states[i]);p.render()})});
+})();
+</script>

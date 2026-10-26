@@ -1,0 +1,13 @@
+// Copy to Config/Local.xcconfig, which is ignored by Git.
+// Use VYU_ variables; do not put personal values into project.yml or the pbxproj.
+VYU_DEVELOPMENT_TEAM = YOUR_TEAM_ID
+VYU_BUNDLE_IDENTIFIER = com.example.yourname.vyu
+
+// Full iCloud build: use a team entitled for iCloud Documents, then configure
+// its container consistently as described in README.md.
+VYU_SIGNING_ENTITLEMENTS = App/VYu.entitlements
+VYU_ICLOUD_ENABLED = YES
+
+// Personal Team local-only testing: explicitly replace the two values above:
+// VYU_SIGNING_ENTITLEMENTS = Config/LocalOnly.entitlements
+// VYU_ICLOUD_ENABLED = NO

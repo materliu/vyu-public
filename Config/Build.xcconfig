@@ -1,0 +1,7 @@
+// Public defaults. Personal values belong only in the ignored Local.xcconfig.
+VYU_DEVELOPMENT_TEAM =
+VYU_BUNDLE_IDENTIFIER = app.vyu.ios
+VYU_SIGNING_ENTITLEMENTS = App/VYu.entitlements
+VYU_ICLOUD_ENABLED = YES
+
+#include? "Local.xcconfig"
