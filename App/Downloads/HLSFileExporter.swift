@@ -54,10 +54,20 @@ struct HLSFileExportResult {
 /// Public AVFoundation APIs operate on complete local fMP4 tracks. No movpkg
 /// internals, CDN path guesses, decryption, or credentials enter the output.
 enum HLSFileExporter {
+    static func prepare(candidate: MediaCandidate, inspection: MediaInspection) async throws -> HLSFileDownloadPlan {
+        let transfer = HLSFileTransfer(candidate: candidate, cookies: [], destination: URL(fileURLWithPath: "/dev/null"), onProgress: { _ in })
+        defer { transfer.client.session.invalidateAndCancel() }
+        let selected = try await transfer.selectedPlaylists(inspection.hlsDownloadURL ?? candidate.url)
+        let plan = HLSFileDownloadPlan(video: selected.video, audio: selected.audio, requiresAudio: selected.requiresAudio || !inspection.audioTracks.isEmpty)
+        try plan.validate()
+        return plan
+    }
+
     static func export(candidate: MediaCandidate, cookies: [HTTPCookie], inspection: MediaInspection,
-                       destination: URL,
+                       destination: URL, plan: HLSFileDownloadPlan? = nil, cachedResources: [HLSFilePlaylist.Resource: URL] = [:],
                        onProgress: @escaping @MainActor @Sendable (HLSFileExportProgress) -> Void = { _ in }) async throws -> HLSFileExportResult {
         let transfer = HLSFileTransfer(candidate: candidate, cookies: cookies, destination: destination, onProgress: onProgress)
+        transfer.preparedPlan = plan; transfer.cachedResources = cachedResources
         let session = transfer.client.session
         defer { session.invalidateAndCancel() }
         return try await withTaskCancellationHandler {
@@ -66,17 +76,40 @@ enum HLSFileExporter {
     }
 }
 
-struct HLSFilePlaylist {
-    struct ByteRange: Equatable {
+struct HLSFileDownloadPlan: Codable {
+    let video: HLSFilePlaylist
+    let audio: HLSFilePlaylist?
+    let requiresAudio: Bool
+    var resources: [HLSFilePlaylist.Resource] {
+        [video.initialization] + video.segments.map(\.resource) + (audio.map { [$0.initialization] + $0.segments.map(\.resource) } ?? [])
+    }
+    func validate() throws {
+        for playlist in [video, audio].compactMap({ $0 }) {
+            guard (1...2048).contains(playlist.segments.count), playlist.duration.isFinite,
+                  playlist.duration > 0, playlist.duration <= 86400,
+                  playlist.segments.allSatisfy({ $0.duration.isFinite && $0.duration > 0 && $0.duration <= 3600 }) else { throw DownloadIssue.invalidMedia }
+        }
+        for resource in resources {
+            guard MediaCookiePolicy.validHTTPURL(resource.url) else { throw DownloadIssue.invalidURL }
+            if let range = resource.range {
+                guard range.offset >= 0, range.length > 0, range.length <= 64 * 1024 * 1024,
+                      range.offset <= Int64.max - range.length else { throw DownloadIssue.invalidMedia }
+            }
+        }
+    }
+}
+
+struct HLSFilePlaylist: Codable {
+    struct ByteRange: Hashable, Codable {
         let offset: Int64
         let length: Int64
         var header: String { "bytes=\(offset)-\(offset + length - 1)" }
     }
-    struct Resource: Equatable {
+    struct Resource: Hashable, Codable {
         let url: URL
         let range: ByteRange?
     }
-    struct Segment {
+    struct Segment: Codable {
         let resource: Resource
         let duration: Double
     }
@@ -156,6 +189,8 @@ private final class HLSFileTransfer {
     private let onProgress: @MainActor @Sendable (HLSFileExportProgress) -> Void
     private let deadline = ContinuousClock.now.advanced(by: .seconds(1800))
     private let byteLimit: Int64 = 2 * 1024 * 1024 * 1024
+    var preparedPlan: HLSFileDownloadPlan?
+    var cachedResources: [HLSFilePlaylist.Resource: URL] = [:]
     private var bytes: Int64 = 0
     private var lastProgress = ContinuousClock.now
     private var completedResources = 0, totalResources = 1
@@ -180,7 +215,12 @@ private final class HLSFileTransfer {
         defer { try? FileManager.default.removeItem(at: stage) }
         try Self.protect(stage)
         phase = .playlist
-        let playlists = try await selectedPlaylists(inspection.hlsDownloadURL ?? candidate.url)
+        let playlists: HLSFileDownloadPlan
+        if let preparedPlan { try preparedPlan.validate(); playlists = preparedPlan }
+        else {
+            let selected = try await selectedPlaylists(inspection.hlsDownloadURL ?? candidate.url)
+            playlists = HLSFileDownloadPlan(video: selected.video, audio: selected.audio, requiresAudio: selected.requiresAudio)
+        }
         // Preflight may replace a master with its media-playlist URL. Preserve
         // an AUDIO group with no URI: its required track is embedded in video.
         let requiresAudio = playlists.requiresAudio || !inspection.audioTracks.isEmpty
@@ -264,7 +304,7 @@ private final class HLSFileTransfer {
         return HLSFileExportResult(url: destination, bytes: size, duration: duration, hasAudio: hasAudio)
     }
 
-    private func selectedPlaylists(_ url: URL) async throws -> (video: HLSFilePlaylist, audio: HLSFilePlaylist?, requiresAudio: Bool) {
+    func selectedPlaylists(_ url: URL) async throws -> (video: HLSFilePlaylist, audio: HLSFilePlaylist?, requiresAudio: Bool) {
         let (text, effective) = try await playlist(url)
         let manifest = try HLSManifest.parse(text, relativeTo: effective)
         guard !manifest.encrypted else { throw DownloadIssue.protectedContent }
@@ -336,6 +376,17 @@ private final class HLSFileTransfer {
     }
 
     private func download(_ resource: HLSFilePlaylist.Resource, to file: URL) async throws -> Int64 {
+        if preparedPlan != nil {
+            guard let source = cachedResources[resource] else { throw DownloadIssue.incompleteMedia }
+            let values = try source.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+            let size = Int64(values.fileSize ?? 0)
+            guard values.isRegularFile == true, values.isSymbolicLink != true, size > 0, size <= 64 * 1024 * 1024,
+                  resource.range == nil || resource.range?.length == size else { throw DownloadIssue.incompleteMedia }
+            bytes += size
+            guard bytes <= byteLimit else { throw HLSFileExportError.limitExceeded }
+            try FileManager.default.copyItem(at: source, to: file)
+            return size
+        }
         var request = client.request(resource.url)
         if let range = resource.range { request.setValue(range.header, forHTTPHeaderField: "Range") }
         let (stream, response) = try await client.session.bytes(for: request)

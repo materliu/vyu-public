@@ -157,6 +157,16 @@ enum CloudVideoFiles {
         }
     }
 
+    /// Ask the iCloud daemon to transfer bytes without importing or opening video.
+    static func requestMediaDownload(entry: CloudVideoEntry, container: URL, ubiquitous: Bool, access: CloudSyncAccess? = nil) throws -> Bool {
+        try access?.check()
+        let package = packageURL(entry.id, container: container)
+        guard !FileManager.default.fileExists(atPath: tombstoneURL(entry.id, container: container).path),
+              try CloudVideoArchive.readManifest(at: package) == entry.manifest else { throw CloudVideoArchiveError.invalidManifest }
+        try access?.check()
+        return try available(package.appendingPathComponent("video.\(entry.manifest.fileExtension)"), ubiquitous: ubiquitous, request: true)
+    }
+
     static func downloadCopy(entry: CloudVideoEntry, container: URL, stagingParent: URL, ubiquitous: Bool, access: CloudSyncAccess? = nil) throws -> URL? {
         try access?.check()
         let package = packageURL(entry.id, container: container)

@@ -43,6 +43,50 @@ import XCTest
         directories = []; fixture = Data()
     }
 
+    func testBackgroundRestoreIntentSurvivesRelaunchAndDoesNotAutoplay() async throws {
+        let cloud = try temporaryDirectory()
+        let source = try makeManager(withVideo: true)
+        let id = try XCTUnwrap(source.records.first?.id)
+        let uploader = CloudVideoSync(downloads: source, containerOverride: cloud)
+        controllers.append(uploader)
+        await uploader.refreshAccount()
+        let destination = try makeManager()
+        let first = CloudVideoSync(downloads: destination, containerOverride: cloud)
+        controllers.append(first)
+        first.setAppActive(false)
+        await first.refreshAccount()
+        await first.restore(id: id)
+        XCTAssertTrue(destination.records.isEmpty, "Background transfer must not start import or playback.")
+        XCTAssertNil(first.readyToPlay)
+        let relaunched = CloudVideoSync(downloads: destination, containerOverride: cloud)
+        controllers.append(relaunched)
+        relaunched.setAppActive(false)
+        await relaunched.refreshAccount()
+        XCTAssertNotNil(relaunched.operations[id], "Restore intent must survive controller recreation.")
+        XCTAssertTrue(destination.records.isEmpty)
+        relaunched.setAppActive(true)
+        await relaunched.synchronize()
+        try await waitUntil { destination.records.first?.phase == .complete }
+        XCTAssertNil(relaunched.readyToPlay, "Returning to the app must not interrupt browsing with playback.")
+        let local = try XCTUnwrap(destination.localURL(for: XCTUnwrap(destination.records.first)))
+        XCTAssertEqual(try Data(contentsOf: local), fixture)
+    }
+
+    func testCancelledBackgroundRestoreIsNotResumedAfterRelaunch() async throws {
+        let cloud = try temporaryDirectory()
+        let source = try makeManager(withVideo: true)
+        let id = try XCTUnwrap(source.records.first?.id)
+        let uploader = CloudVideoSync(downloads: source, containerOverride: cloud)
+        controllers.append(uploader); await uploader.refreshAccount()
+        let destination = try makeManager()
+        let first = CloudVideoSync(downloads: destination, containerOverride: cloud)
+        controllers.append(first); first.setAppActive(false); await first.refreshAccount()
+        await first.restore(id: id); first.cancelRestore(id: id)
+        let relaunched = CloudVideoSync(downloads: destination, containerOverride: cloud)
+        controllers.append(relaunched); await relaunched.refreshAccount()
+        XCTAssertNil(relaunched.operations[id]); XCTAssertTrue(destination.records.isEmpty)
+    }
+
     func testICloudBuildSettingDefaultsToEnabledAndAcceptsPlistAndExpandedValues() {
         XCTAssertTrue(CloudVideoSync.iCloudEnabled(infoValue: nil))
         XCTAssertTrue(CloudVideoSync.iCloudEnabled(infoValue: true))

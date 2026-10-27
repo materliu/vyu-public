@@ -340,6 +340,31 @@ final class VYuUITests: XCTestCase {
         app.terminate()
     }
 
+    func testHLSDownloadContinuesWhileAppIsInBackground() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["VYU_TEST_LIBRARY_ID"] = UUID().uuidString
+        app.launchArguments = ["--fixture-url", "http://127.0.0.1:8765/background-hls"]
+        app.launch()
+        let inline = app.webViews.buttons["下载此视频"]
+        XCTAssertTrue(inline.waitForExistence(timeout: 20)); inline.tap()
+        XCTAssertTrue(app.staticTexts["downloadToast"].waitForExistence(timeout: 20))
+        app.tabBars.buttons["离线"].tap()
+        let status = app.cells.firstMatch.staticTexts["downloadStatus"]
+        XCTAssertTrue(status.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "label BEGINSWITH %@", "正在下载 ·"), evaluatedWith: status)
+        waitForExpectations(timeout: 15)
+        XCTAssertFalse(app.buttons["offlineVideoRow"].exists)
+        XCUIDevice.shared.press(.home)
+        Thread.sleep(forTimeInterval: 12)
+        app.activate()
+        let video = app.buttons["offlineVideoRow"]
+        XCTAssertTrue(video.waitForExistence(timeout: 30))
+        XCTAssertEqual(video.value as? String, "127.0.0.1 · 含音轨 · 8 秒")
+        XCTAssertFalse(app.staticTexts["offlinePlaybackLabel"].exists)
+        app.terminate()
+    }
+
     func testDownloadContinuesWhileAppIsInBackground() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

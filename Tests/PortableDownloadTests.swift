@@ -41,6 +41,136 @@ import XCTest
         if fixtureReady { try await setOffline(false) }
     }
 
+    func testHLSResourcesContinueInBackgroundAndAssembleOfflineOnReturn() async throws {
+        let manager = makeManager()
+        let source = candidate(path: "background-hls-media/master.m3u8")
+        await manager.start(candidate: source, cookies: [])
+        let id = try XCTUnwrap(manager.records.first?.id)
+        XCTAssertFalse(manager.transferNeedsForeground(id: id))
+        manager.setAppInBackground(true)
+        try await waitUntil("Daemon finishes all resources without foreground assembly", timeout: 45) {
+            manager.backgroundTransferStatus(id: id) != nil
+        }
+        let pending = try XCTUnwrap(manager.records.first)
+        XCTAssertEqual(pending.phase, .validating)
+        XCTAssertNil(pending.localRelativePath)
+        XCTAssertGreaterThan(pending.bytesWritten, 0)
+        try await setOffline(true)
+        manager.setAppInBackground(false)
+        let completed = try await completedRecord(manager, id: id)
+        XCTAssertEqual(completed.duration ?? 0, 8, accuracy: 0.25)
+        XCTAssertEqual(completed.hasAudio, true)
+        XCTAssertEqual(manager.localURL(for: completed)?.pathExtension, "mp4")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: manager.rootDirectory.appendingPathComponent("BackgroundHLS/" + id.uuidString).path))
+    }
+
+    func testBackgroundHLSRejectsDamagedResourceBeforeExport() async throws {
+        let manager = makeManager()
+        await manager.start(candidate: candidate(), cookies: [])
+        let id = try XCTUnwrap(manager.records.first?.id)
+        manager.setAppInBackground(true)
+        try await waitUntil("Resources are ready", timeout: 45) { manager.backgroundTransferStatus(id: id) != nil }
+        let folder = manager.rootDirectory.appendingPathComponent("BackgroundHLS/" + id.uuidString)
+        try Data("damaged resource".utf8).write(to: folder.appendingPathComponent("0.part"))
+        manager.setAppInBackground(false)
+        try await waitUntil("Corrupt resource fails validation", timeout: 20) { manager.records.first?.phase == .failed }
+        XCTAssertNil(manager.records.first?.localRelativePath)
+        XCTAssertFalse(manager.records.contains { $0.phase == .complete })
+    }
+
+    func testBackgroundHLSPauseResumeRetainsCompletedResources() async throws {
+        let manager = makeManager()
+        let source = candidate(path: "background-hls-media/master.m3u8")
+        await manager.start(candidate: source, cookies: [])
+        let id = try XCTUnwrap(manager.records.first?.id)
+        try await waitUntil("At least one completed resource", timeout: 20) { (manager.records.first?.bytesWritten ?? 0) > 0 }
+        manager.pause(id: id)
+        XCTAssertEqual(manager.records.first?.phase, .paused)
+        XCTAssertTrue(manager.canResume(id: id))
+        manager.resume(id: id)
+        let complete = try await completedRecord(manager, id: id)
+        XCTAssertEqual(complete.hasAudio, true)
+        XCTAssertEqual(complete.duration ?? 0, 8, accuracy: 0.25)
+    }
+
+    func testReadyHLSPlanSurvivesManagerRecreationAndFinishesWithoutNetwork() async throws {
+        let original = makeManager()
+        await original.start(candidate: candidate(), cookies: [])
+        let id = try XCTUnwrap(original.records.first?.id)
+        original.setAppInBackground(true)
+        try await waitUntil("All resources are durable", timeout: 45) { original.backgroundTransferStatus(id: id) != nil }
+        try await setOffline(true)
+        let restored = DownloadManager(rootDirectory: original.rootDirectory, initiallyInBackground: true)
+        managers.append(restored)
+        try await waitUntil("Restored job is waiting for foreground", timeout: 10) { restored.backgroundTransferStatus(id: id) != nil }
+        XCTAssertEqual(restored.records.first?.phase, .validating)
+        restored.setAppInBackground(false)
+        let complete = try await completedRecord(restored, id: id)
+        XCTAssertEqual(complete.hasAudio, true)
+        XCTAssertEqual(complete.duration ?? 0, 8, accuracy: 0.25)
+    }
+
+    func testDefaultBackgroundPathSupportsMuxedFMP4ByteRanges() async throws {
+        let manager = makeManager()
+        await manager.start(candidate: candidate(path: "media/hls-fmp4/index.m3u8"), cookies: [])
+        let complete = try await completedRecord(manager, id: XCTUnwrap(manager.records.first?.id))
+        XCTAssertEqual(complete.duration ?? 0, 8, accuracy: 0.25)
+        XCTAssertEqual(complete.hasAudio, true)
+        XCTAssertEqual(manager.localURL(for: complete)?.pathExtension, "mp4")
+    }
+
+    func testBackgroundSessionRejectionFallsBackToAuthorizedForegroundRequest() async throws {
+        let manager = makeManager()
+        await manager.start(candidate: candidate(path: "background-hls-session-media/master.m3u8"), cookies: [])
+        let id = try XCTUnwrap(manager.records.first?.id)
+        let complete = try await completedRecord(manager, id: id)
+        XCTAssertEqual(complete.hasAudio, true)
+        XCTAssertEqual(complete.duration ?? 0, 8, accuracy: 0.25)
+        XCTAssertTrue(manager.transferNeedsForeground(id: id))
+    }
+
+    func testSystemHLSWithoutWebRelayCanContinueInBackground() async throws {
+        let manager = makeManager()
+        await manager.start(candidate: candidate(path: "media/hls/master.m3u8"), cookies: [])
+        let id = try XCTUnwrap(manager.records.first?.id)
+        XCTAssertFalse(manager.transferNeedsForeground(id: id), "Native system HLS without a relay must not be paused as a portable export.")
+        manager.setAppInBackground(true)
+        let complete = try await completedRecord(manager, id: id)
+        XCTAssertEqual(complete.hasAudio, true)
+        XCTAssertEqual(manager.localURL(for: complete)?.pathExtension, "movpkg")
+    }
+
+    func testRestartAfterMP4CommitValidatesExistingMovieWithoutCreatingAnother() async throws {
+        let original = makeManager()
+        let recoveredRoot = temporaryRoot()
+        var capturedPath: String?
+        var captureError: Error?
+        let observer = original.$records.sink { records in
+            guard capturedPath == nil, let record = records.first(where: { $0.phase == .validating && $0.localRelativePath != nil }),
+                  let relative = record.localRelativePath else { return }
+            capturedPath = relative
+            do {
+                try FileManager.default.createDirectory(at: recoveredRoot.appendingPathComponent("Media"), withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: original.rootDirectory.appendingPathComponent(relative), to: recoveredRoot.appendingPathComponent(relative))
+                try FileManager.default.copyItem(at: original.rootDirectory.appendingPathComponent("downloads.json"), to: recoveredRoot.appendingPathComponent("downloads.json"))
+                try FileManager.default.copyItem(at: original.rootDirectory.appendingPathComponent("BackgroundHLS"), to: recoveredRoot.appendingPathComponent("BackgroundHLS"))
+            } catch { captureError = error }
+        }
+        defer { observer.cancel() }
+        await original.start(candidate: candidate(), cookies: [])
+        let id = try XCTUnwrap(original.records.first?.id)
+        _ = try await completedRecord(original, id: id)
+        XCTAssertNil(captureError)
+        let relative = try XCTUnwrap(capturedPath)
+        try await setOffline(true)
+        let recovered = makeManager(root: recoveredRoot)
+        let complete = try await completedRecord(recovered, id: id)
+        XCTAssertEqual(complete.localRelativePath, relative)
+        XCTAssertEqual(try mediaFiles(recovered).count, 1)
+        XCTAssertEqual(complete.hasAudio, true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: recoveredRoot.appendingPathComponent("BackgroundHLS/" + id.uuidString).path))
+    }
+
     func testDefaultManagerExportsSeparateFMP4ToCompleteMP4WithOfflineThumbnail() async throws {
         let manager = makeManager()
         let source = candidate()
@@ -369,8 +499,8 @@ import XCTest
         FileManager.default.temporaryDirectory.appendingPathComponent("VYu-portable-download-" + UUID().uuidString)
     }
 
-    private func candidate() -> MediaCandidate {
-        MediaCandidate(url: base.appendingPathComponent("media/hls-fmp4-separate/master.m3u8"),
+    private func candidate(path: String = "media/hls-fmp4-separate/master.m3u8") -> MediaCandidate {
+        MediaCandidate(url: base.appendingPathComponent(path),
             pageURL: base, frameURL: base, title: "Generated separate HLS tracks", kind: .hls,
             source: "test-fixture", mimeType: "application/vnd.apple.mpegurl")
     }

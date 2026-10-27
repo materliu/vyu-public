@@ -874,8 +874,7 @@ struct ContentView: View {
 
     private func activeDownloadProgress(_ record: DownloadRecord) -> some View {
         let progress = progressPresentation(record)
-        let needsForeground = downloads.isBrowserDownload(id: record.id) ||
-            (record.candidate.kind == .hls && record.candidate.requestContext != nil)
+        let needsForeground = downloads.transferNeedsForeground(id: record.id)
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 8) {
                 if progress.fraction == nil {
@@ -902,7 +901,7 @@ struct ContentView: View {
     private func status(_ record: DownloadRecord) -> String {
         if downloads.pendingResumeIDs.contains(record.id) { return "等待继续下载…" }
         switch record.phase {
-        case .queued, .downloading, .validating: return progressPresentation(record).status
+        case .queued, .downloading, .validating: return downloads.backgroundTransferStatus(id: record.id) ?? progressPresentation(record).status
         case .paused: return downloads.resumeBlockReason(id: record.id) ?? record.failure ?? "已暂停，可继续下载"
         case .complete: return "\(record.hasAudio == true ? "含音轨" : "无音轨") · \(MediaDurationFormatter.string(seconds: record.duration))"
         case .failed: return record.failure ?? "下载失败，请返回网页重试"

@@ -72,7 +72,7 @@ def html_for(path):
         return page("封面选帧 · 黑红绿蓝", player("/media/cover-timeline.mp4"))
     if path == "/batch":
         return page("批量下载测试", '<p>本页只用于隔离资料中的合成任务回归。</p>')
-    direct = {"/direct": ("直接视频 · 8 秒有声", "/media/direct.mp4"), "/hls": ("HLS · 两档画质", "/media/hls/master.m3u8"), "/hls-separate": ("HLS · 独立音轨", "/media/hls-separate/master.m3u8"), "/expired": ("已过期的链接", "/expired.mp4?expires=1"), "/forbidden": ("服务器拒绝访问", "/forbidden.mp4"), "/head-denied": ("只拒绝 HEAD 请求", "/head-denied.mp4"), "/context-frame": ("需要播放器请求上下文", "/context-required.mp4"), "/silent": ("无音轨视频 · 8 秒", "/media/silent.mp4"), "/corrupt": ("损坏的视频", "/media/corrupt.mp4"), "/slow": ("慢速传输 · 可测试取消与恢复", "/slow.mp4"), "/protected": ("受保护标记 · 仅识别测试", "/media/protected/index.m3u8")}
+    direct = {"/background-hls": ("后台 HLS · 独立音轨", "/background-hls-media/master.m3u8"), "/direct": ("直接视频 · 8 秒有声", "/media/direct.mp4"), "/hls": ("HLS · 两档画质", "/media/hls/master.m3u8"), "/hls-separate": ("HLS · 独立音轨", "/media/hls-separate/master.m3u8"), "/expired": ("已过期的链接", "/expired.mp4?expires=1"), "/forbidden": ("服务器拒绝访问", "/forbidden.mp4"), "/head-denied": ("只拒绝 HEAD 请求", "/head-denied.mp4"), "/context-frame": ("需要播放器请求上下文", "/context-required.mp4"), "/silent": ("无音轨视频 · 8 秒", "/media/silent.mp4"), "/corrupt": ("损坏的视频", "/media/corrupt.mp4"), "/slow": ("慢速传输 · 可测试取消与恢复", "/slow.mp4"), "/protected": ("受保护标记 · 仅识别测试", "/media/protected/index.m3u8")}
     if path in direct:
         title, src = direct[path]
         return page(title, player(src))
@@ -227,6 +227,23 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 stats = dict(REQUESTS)
             return self.body(200, json.dumps(stats).encode())
+        if path.startswith(("/background-hls-media/", "/background-hls-session-media/")):
+            if offline:
+                return self.body(503, b'{"error":"fixture media offline"}')
+            session_required = path.startswith("/background-hls-session-media/")
+            prefix = "/background-hls-session-media/" if session_required else "/background-hls-media/"
+            relative = path.removeprefix(prefix)
+            if session_required and relative.endswith(".m4s") and not self.headers.get("Referer"):
+                return self.body(403, b"<html>synthetic session required</html>", "text/html")
+            candidate = (MEDIA / "hls-fmp4-separate" / relative).resolve()
+            if not candidate.is_relative_to((MEDIA / "hls-fmp4-separate").resolve()) or not candidate.is_file():
+                return self.body(404, b'{}')
+            if candidate.suffix == ".m3u8":
+                text = candidate.read_text().replace("/media/hls-fmp4-separate/", prefix)
+                return self.body(200, text.encode(), "application/vnd.apple.mpegurl")
+            if candidate.suffix == ".m4s" and not session_required:
+                time.sleep(8)  # All resources are queued before the app leaves foreground.
+            return self.file(candidate, False)
         if path.startswith("/hls-relay-wire/"):
             if offline:
                 return self.body(503, b'{"error":"fixture media offline"}')

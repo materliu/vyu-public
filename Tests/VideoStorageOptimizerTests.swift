@@ -436,6 +436,32 @@ import XCTest
         XCTAssertEqual(try localFiles(manager), before)
     }
 
+    func testRepeatedOptimizationAndReloadNeverEvictUnpublishedVideos() async throws {
+        let manager = try makeManager(count: 3)
+        let cloud = try temporaryDirectory()
+        try CloudVideoFiles.prepare(container: cloud)
+        for record in manager.records {
+            let package = CloudVideoFiles.packageURL(record.id, container: cloud)
+            try FileManager.default.createDirectory(at: package, withIntermediateDirectories: false)
+            try Data("upload not committed".utf8).write(to: package.appendingPathComponent("manifest.json"))
+        }
+        let sync = makeSync(manager, cloud: cloud)
+        await sync.refreshAccount()
+        let optimizer = makeOptimizer(manager, sync: sync, budget: 1)
+        try optimizer.setEnabled(true)
+        for _ in 0..<3 { await sync.retrySync(); await optimizer.maintain() }
+        XCTAssertGreaterThan(optimizer.localBytes, optimizer.budgetBytes)
+        let reloaded = DownloadManager(rootDirectory: manager.rootDirectory)
+        managers.append(reloaded)
+        XCTAssertEqual(reloaded.records.count, 3)
+        for record in reloaded.records {
+            XCTAssertEqual(record.phase, .complete)
+            XCTAssertNotEqual(record.localCacheEvicted, true)
+            XCTAssertNil(sync.entry(for: record.id))
+            XCTAssertEqual(try Data(contentsOf: XCTUnwrap(reloaded.localURL(for: record))), fixture)
+        }
+    }
+
     func testFailedCloudPublicationDoesNotMakeTheOnlyPlayableCopyEvictable() async throws {
         let manager = try makeManager(count: 1)
         let original = try XCTUnwrap(manager.records.first)

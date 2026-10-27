@@ -43,7 +43,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             ? OfflineBatchFixture.baseURL(fixtureAddress) : nil
         observesDownloadActivity = fixtureRoot != nil && arguments.contains("--fixture-observe-idle-timer")
         #endif
-        let downloads = DownloadManager(rootDirectory: fixtureRoot)
+        let downloads = DownloadManager(rootDirectory: fixtureRoot, initiallyInBackground: UIApplication.shared.applicationState != .active)
         let videoMetadata = VideoMetadataStore(rootDirectory: downloads.rootDirectory)
         var storageBudget: Int64 = 1_000_000_000
         #if DEBUG
@@ -56,6 +56,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _videoMetadata = StateObject(wrappedValue: videoMetadata)
         let cloud = CloudVideoSync(downloads: downloads, metadataStore: videoMetadata,
             containerOverride: fixtureRoot?.appendingPathComponent("FixtureCloud", isDirectory: true))
+        cloud.setAppActive(false)
         _cloud = StateObject(wrappedValue: cloud)
         let storage = VideoStorageOptimizer(downloads: downloads, cloud: cloud, metadataStore: videoMetadata,
                                             budgetBytes: storageBudget)
@@ -70,6 +71,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 .task {
                     downloads.setAppInBackground(scenePhase == .background)
                     storage.setAppActive(scenePhase == .active)
+                    cloud.setAppActive(scenePhase == .active)
                     downloadIdleTimer.update(isSceneActive: scenePhase == .active,
                                              hasActiveDownloads: downloads.hasActiveDownloads)
                     try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
@@ -89,6 +91,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 }
                 .onChange(of: scenePhase) { _, phase in
                     storage.setAppActive(phase == .active)
+                    cloud.setAppActive(phase == .active)
                     downloadIdleTimer.update(isSceneActive: phase == .active,
                                              hasActiveDownloads: downloads.hasActiveDownloads)
                     #if DEBUG

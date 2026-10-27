@@ -20,6 +20,7 @@ final class CloudVideoSync: ObservableObject {
         var owners: [UUID: String] = [:]
         var hidden: [String: Set<UUID>] = [:]
         var deletions: [String: Set<UUID>] = [:]
+        var restoreIntents: [String: Set<UUID>]?
     }
     private let downloads: DownloadManager
     private let metadataStore: VideoMetadataStore?
@@ -43,6 +44,13 @@ final class CloudVideoSync: ObservableObject {
     private var refreshAgain = false
     private var restoreRequests: Set<UUID> = []
     private var pendingPlaybackID: UUID?
+    private var appActive = true
+
+    func setAppActive(_ active: Bool) {
+        appActive = active
+        if !active { cancelPendingPlayback() }
+        if active { Task { await synchronize() } }
+    }
     private var uploadFailures: Set<UUID> = []
     private struct CoverWork {
         let metadata: VideoMetadata
@@ -183,6 +191,7 @@ final class CloudVideoSync: ObservableObject {
             try await Task.detached(priority: .utility) { try CloudVideoFiles.prepare(container: container, access: access) }.value
             guard current == generation else { return }
             isAvailable = true
+            restoreRequests.formUnion(state.restoreIntents?[account] ?? [])
             if query == nil && containerOverride == nil { startQuery(container: container) }
             if containerOverride != nil { queryReady = true }
             await synchronize()
@@ -207,14 +216,18 @@ final class CloudVideoSync: ObservableObject {
         guard isAvailable, entries[id] != nil, let account,
               state.owners[id] == nil || state.owners[id] == account else { return }
         cacheEvictionWork[id]?.cancel()
-        pendingPlaybackID = id
+        pendingPlaybackID = appActive ? id : nil
+        state.restoreIntents = state.restoreIntents ?? [:]
+        state.restoreIntents?[account, default: []].insert(id)
+        guard saveState() else { return }
         restoreRequests.insert(id)
-        operations[id] = "正在从 iCloud 下载，完成后播放"
+        operations[id] = appActive ? "正在从 iCloud 下载" : "正在后台从 iCloud 下载"
         await synchronize()
     }
 
     func cancelRestore(id: UUID) {
         restoreRequests.remove(id); operations.removeValue(forKey: id)
+        if let account { state.restoreIntents?[account]?.remove(id); _ = saveState() }
         if pendingPlaybackID == id { cancelPendingPlayback() }
     }
 
@@ -442,33 +455,47 @@ final class CloudVideoSync: ObservableObject {
                     continue
                 }
                 guard let entry = entries[id] else { continue }
+                if !appActive {
+                    do {
+                        let ready = try await Task.detached(priority: .utility) {
+                            try CloudVideoFiles.requestMediaDownload(entry: entry, container: container, ubiquitous: ubiquitous, access: access)
+                        }.value
+                        guard valid(), restoreRequests.contains(id) else { continue }
+                        operations[id] = ready ? "已下载，返回 App 后检查" : "正在后台从 iCloud 下载"
+                    } catch { if valid(), restoreRequests.contains(id) { operations[id] = "iCloud 下载未完成，可轻点重试" } }
+                    continue
+                }
                 let stage = directory.appendingPathComponent("Import-\(UUID().uuidString)", isDirectory: true)
                 do {
                     let package = try await Task.detached(priority: .utility) {
                         try CloudVideoFiles.downloadCopy(entry: entry, container: container, stagingParent: stage, ubiquitous: ubiquitous, access: access)
                     }.value
                     defer { try? FileManager.default.removeItem(at: stage) }
-                    guard valid(), restoreRequests.contains(id) else { continue }
+                    guard valid(), restoreRequests.contains(id), appActive else { refreshAgain = true; continue }
                     guard let package else {
                         if entry.transferError { operations[id] = "iCloud 下载未完成，可轻点重试" }
                         continue
                     }
                     operations[id] = "正在检查 iCloud 视频"
                     let record = try await downloads.importCloudVideo(manifest: entry.manifest, from: package,
-                        isCurrent: { valid() && self.restoreRequests.contains(id) && !(self.state.deletions[account]?.contains(id) ?? false) })
+                        isCurrent: { valid() && self.appActive && self.restoreRequests.contains(id) && !(self.state.deletions[account]?.contains(id) ?? false) })
                     guard valid(), restoreRequests.remove(id) != nil else { continue }
                     state.owners[id] = account
+                    state.restoreIntents?[account]?.remove(id)
                     guard saveState() else { return }
                     operations.removeValue(forKey: id)
-                    if pendingPlaybackID == id { pendingPlaybackID = nil; readyToPlay = record }
+                    if appActive, pendingPlaybackID == id { pendingPlaybackID = nil; readyToPlay = record }
                 } catch {
                     guard valid() else { return }
+                    if !appActive { refreshAgain = true; continue }
                     restoreRequests.remove(id)
+                    state.restoreIntents?[account]?.remove(id); _ = saveState()
                     operations[id] = "iCloud 视频恢复失败，请重试"
                 }
             }
 
             for record in downloads.records where record.phase == .complete {
+                guard appActive else { break }
                 guard valid() else { return }
                 guard entries[record.id] == nil, !deleted.contains(record.id), !uploadFailures.contains(record.id),
                       state.owners[record.id] == nil || state.owners[record.id] == account,

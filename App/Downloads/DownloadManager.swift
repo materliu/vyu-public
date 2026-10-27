@@ -61,6 +61,9 @@ final class DownloadManager: NSObject, ObservableObject {
     private var tasks: [UUID: URLSessionTask] = [:] { didSet { activityDidChange() } }
     private var browserTasks: [UUID: BrowserFileDownload] = [:] { didSet { activityDidChange() } }
     private var hlsRelays: [UUID: HLSDownloadRelay] = [:]
+    private var assemblyGenerations: [UUID: UUID] = [:]
+    private var foregroundOnlyHLS: Set<UUID> = []
+    private var backgroundHLS: BackgroundHLSStore!
     private var portableTasks: [UUID: Task<Void, Never>] = [:] { didSet { activityDidChange() } }
     private var cloudPreparationTasks: [UUID: Task<Void, Never>] = [:] { didSet { activityDidChange() } }
     private var cloudPreparationTokens: [UUID: UUID] = [:]
@@ -83,6 +86,7 @@ final class DownloadManager: NSObject, ObservableObject {
         let authenticated: Set<UUID>
         let expectations: [UUID: ValidationExpectation]
         let attempts: [UUID: String]
+        var foregroundHLS: Set<UUID>? = nil
     }
     private struct CacheEvictionJournal: Codable {
         let original: DownloadRecord
@@ -102,9 +106,10 @@ final class DownloadManager: NSObject, ObservableObject {
         AVAssetDownloadURLSession(configuration: configuration(background: true, suffix: ".hls"), assetDownloadDelegate: delegateProxy, delegateQueue: nil)
     }()
 
-    init(rootDirectory: URL? = nil, preferPortableHLS: Bool = true,
+    init(rootDirectory: URL? = nil, preferPortableHLS: Bool = true, initiallyInBackground: Bool = false,
          cacheEvictionHooks: VideoCacheEvictionHooks = VideoCacheEvictionHooks()) {
         self.preferPortableHLS = preferPortableHLS
+        self.appInBackground = initiallyInBackground
         let root = rootDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("VYu", isDirectory: true)
         self.rootDirectory = root
         self.cacheRootURL = root.standardizedFileURL.resolvingSymlinksInPath()
@@ -133,6 +138,7 @@ final class DownloadManager: NSObject, ObservableObject {
                 if let archive = try? JSONDecoder().decode(DownloadArchive.self, from: data) {
                     records = archive.records; authenticated = archive.authenticated
                     expectations = archive.expectations; tokens = archive.attempts
+                    foregroundOnlyHLS = archive.foregroundHLS ?? []
                 } else {
                     records = try JSONDecoder().decode([DownloadRecord].self, from: data)
                     if let data = try? Data(contentsOf: modeURL), let ids = try? JSONDecoder().decode([UUID].self, from: data) { authenticated = Set(ids) }
@@ -145,6 +151,13 @@ final class DownloadManager: NSObject, ObservableObject {
                 records[index].phase = .failed; records[index].failure = "本机视频文件已不存在，请重新下载。"
             }
             cleanupAbandonedHLSExports()
+            let staging = root.appendingPathComponent("Staging", isDirectory: true)
+            for file in try FileManager.default.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil) {
+                let name = file.lastPathComponent
+                if name.hasPrefix("hls-part-"), UUID(uuidString: String(name.dropFirst("hls-part-".count))) != nil {
+                    try? FileManager.default.removeItem(at: file)
+                }
+            }
         } catch {
             stateReadable = false
             storageError = "无法读取本机下载目录。请检查可用存储空间后重新打开 App。"
@@ -153,6 +166,10 @@ final class DownloadManager: NSObject, ObservableObject {
         thumbnailStore.retainRecords(Set(records.filter {
             $0.localCacheEvicted == true || ($0.phase == .complete && localURL(for: $0) != nil)
         }.map(\.id)))
+        backgroundHLS = BackgroundHLSStore(root: root, identifier: identifier + ".parts")
+        backgroundHLS.onChange = { [weak self] job in self?.backgroundHLSChanged(job) }
+        backgroundHLS.onFailure = { [weak self] id, attempt, error in self?.backgroundHLSFailed(id: id, attempt: attempt, error: error) }
+        backgroundHLS.onEventsFinished = { [weak self] identifier in self?.backgroundEventsFinished(identifier) }
         restoringIDs = Set(records.map(\.id))
         Task { await restoreTasks() }
     }
@@ -193,7 +210,7 @@ final class DownloadManager: NSObject, ObservableObject {
     @discardableResult private func persist(_ proposedRecords: [DownloadRecord]? = nil) -> Bool {
         guard stateReadable else { return false }
         do {
-            let archive = DownloadArchive(records: proposedRecords ?? records, authenticated: authenticated, expectations: expectations, attempts: tokens)
+            let archive = DownloadArchive(records: proposedRecords ?? records, authenticated: authenticated, expectations: expectations, attempts: tokens, foregroundHLS: foregroundOnlyHLS)
             try JSONEncoder().encode(archive).write(to: stateURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             storageError = nil; return true
         } catch { storageError = "下载状态未能写入本机，请检查存储空间。"; return false }
@@ -386,7 +403,11 @@ final class DownloadManager: NSObject, ObservableObject {
             contexts[id] = selected
             if selected.isEmpty { authenticated.remove(id) } else { authenticated.insert(id) }
             if preferPortableHLS, allowPortable, record.candidate.kind == .hls {
-                startPortableHLS(id: id, candidate: record.candidate, cookies: selected, inspection: info, attempt: attempt)
+                if foregroundOnlyHLS.contains(id) {
+                    startPortableHLS(id: id, candidate: record.candidate, cookies: selected, inspection: info, attempt: attempt)
+                } else {
+                    try await startBackgroundHLS(id: id, candidate: record.candidate, inspection: info, attempt: attempt)
+                }
                 return
             }
             let task: URLSessionTask
@@ -420,10 +441,59 @@ final class DownloadManager: NSObject, ObservableObject {
             activate(task, id: id, cookies: selected)
         } catch { if tokens[id] == attempt { fail(id, error: error) } }
     }
-    private func startPortableHLS(id: UUID, candidate: MediaCandidate, cookies: [HTTPCookie], inspection: MediaInspection, attempt: String) {
+    private func startBackgroundHLS(id: UUID, candidate: MediaCandidate, inspection: MediaInspection, attempt: String) async throws {
+        do {
+            let plan = try await HLSFileExporter.prepare(candidate: candidate, inspection: inspection)
+            guard tokens[id] == attempt, !Task.isCancelled, !appInBackground,
+                  records.first(where: { $0.id == id })?.phase == .queued else { return }
+            guard commit(id, { $0.phase = .downloading; $0.failure = nil }) else { throw DownloadIssue.invalidMedia }
+            try backgroundHLS.create(id: id, attempt: attempt, plan: plan, userAgent: candidate.userAgent)
+        } catch HLSFileExportError.unsupported {
+            // TS and other system-supported HLS retain their existing path.
+            mutate(id) { $0.phase = .queued }
+            await begin(id: id, cookies: [], allowPortable: false)
+        }
+    }
+    private func backgroundHLSChanged(_ job: BackgroundHLSStore.Job) {
+        guard tokens[job.id] == job.attempt, let record = records.first(where: { $0.id == job.id }),
+              [.downloading, .validating].contains(record.phase), !job.paused else { return }
+        let update = backgroundHLS.progress(id: job.id)
+        progress(token: job.attempt, written: update.0, expected: 0, fraction: update.1)
+        if job.ready {
+            mutate(job.id) { $0.phase = .validating }
+            guard !appInBackground, portableTasks[job.id] == nil else { return }
+            let expected = expectations[job.id]
+            let inspection = MediaInspection(summary: "", variants: [], audioTracks: job.plan.requiresAudio ? ["audio"] : [],
+                expectedBytes: nil, downloadable: true, expectedDuration: expected?.duration)
+            startPortableHLS(id: job.id, candidate: record.candidate, cookies: [], inspection: inspection, attempt: job.attempt, job: job)
+        }
+        activityDidChange()
+    }
+    private func backgroundHLSFailed(id: UUID, attempt: String, error: Error) {
+        guard tokens[id] == attempt else { return }
+        backgroundHLS.cancel(id: id)
+        // Retry an authorized page-context request only in the foreground. No
+        // context is attached to automatically redirected background requests.
+        if case DownloadIssue.http(let code) = error, [401, 403].contains(code) {
+            foregroundOnlyHLS.insert(id)
+            mutate(id) { $0.phase = .paused; $0.failure = "此站点需要网页会话，请在前台继续下载。" }
+            if !appInBackground { resume(id: id) }
+        } else { fail(id, error: error) }
+    }
+    func transferNeedsForeground(id: UUID) -> Bool {
+        guard let record = records.first(where: { $0.id == id }) else { return false }
+        return browserTasks[id] != nil || requiresForeground(record)
+    }
+    func backgroundTransferStatus(id: UUID) -> String? {
+        guard let job = backgroundHLS?.jobs[id], job.ready, appInBackground else { return nil }
+        return "分片已下载，返回 App 后整理"
+    }
+
+    private func startPortableHLS(id: UUID, candidate: MediaCandidate, cookies: [HTTPCookie], inspection: MediaInspection, attempt: String, job: BackgroundHLSStore.Job? = nil) {
+        let assembly = UUID(); assemblyGenerations[id] = assembly
         let relative = "Media/portable-\(UUID().uuidString).mp4"
         let destination = rootDirectory.appendingPathComponent(relative)
-        guard commit(id, { $0.phase = .downloading; $0.failure = nil }) else {
+        guard commit(id, { $0.phase = job == nil ? .downloading : .validating; $0.failure = nil }) else {
             fail(id, error: DownloadIssue.unsupported("无法保存下载状态，请检查存储空间。"))
             return
         }
@@ -431,13 +501,16 @@ final class DownloadManager: NSObject, ObservableObject {
         portableTasks[id] = Task { [weak self] in
             guard let self else { return }
             do {
+                let cached: [HLSFilePlaylist.Resource: URL]
+                if job != nil { cached = try await self.backgroundHLS.resources(id: id) } else { cached = [:] }
+                try Task.checkCancellation()
                 let result = try await HLSFileExporter.export(candidate: candidate, cookies: cookies,
-                    inspection: inspection, destination: destination) { [weak self] update in
-                        guard let self, self.tokens[id] == attempt else { return }
+                    inspection: inspection, destination: destination, plan: job?.plan, cachedResources: cached) { [weak self] update in
+                        guard let self, self.tokens[id] == attempt, self.assemblyGenerations[id] == assembly else { return }
                         self.progress(token: attempt, written: update.bytes, expected: 0, fraction: update.fraction)
                         if update.stage != .transferring { self.mutate(id) { $0.phase = .validating } }
                     }
-                guard self.tokens[id] == attempt, !Task.isCancelled else {
+                guard self.tokens[id] == attempt, self.assemblyGenerations[id] == assembly, !Task.isCancelled else {
                     try? FileManager.default.removeItem(at: destination); return
                 }
                 self.portableTasks.removeValue(forKey: id)
@@ -447,8 +520,11 @@ final class DownloadManager: NSObject, ObservableObject {
                     return
                 }
                 await self.validate(id: id, url: result.url, isHLS: false)
+                if self.backgroundHLS.jobs[id]?.attempt == attempt { self.backgroundHLS.cancel(id: id) }
+                if self.assemblyGenerations[id] == assembly { self.assemblyGenerations.removeValue(forKey: id) }
             } catch {
-                guard self.tokens[id] == attempt else { return }
+                guard self.tokens[id] == attempt, self.assemblyGenerations[id] == assembly else { return }
+                self.backgroundHLS.cancel(id: id)
                 self.portableTasks.removeValue(forKey: id)
                 if case HLSFileExportError.unsupported = error, !Task.isCancelled {
                     self.mutate(id) { $0.phase = .queued; $0.progress = 0; $0.bytesWritten = 0 }
@@ -512,8 +588,8 @@ final class DownloadManager: NSObject, ObservableObject {
         if pendingResumeIDs.contains(id) || launchingResumeTokens[id] != nil { return true }
         guard let record = records.first(where: { $0.id == id }), browserTasks[id] == nil else { return false }
         if record.phase == .queued { return preflightTasks[id] != nil || tasks[id] != nil }
-        if record.phase == .downloading { return tasks[id] != nil || portableTasks[id] != nil }
-        return record.phase == .validating && portableTasks[id] != nil
+        if record.phase == .downloading { return tasks[id] != nil || portableTasks[id] != nil || backgroundHLS?.jobs[id] != nil }
+        return record.phase == .validating && (portableTasks[id] != nil || backgroundHLS?.jobs[id] != nil)
     }
 
     func resumeDownloads(ids: Set<UUID>) {
@@ -571,6 +647,15 @@ final class DownloadManager: NSObject, ObservableObject {
             mutate(id) { $0.phase = .paused; $0.failure = nil }
             return
         }
+        if backgroundHLS?.jobs[id] != nil {
+            do {
+                try backgroundHLS.pause(id: id)
+                assemblyGenerations.removeValue(forKey: id)
+                portableTasks.removeValue(forKey: id)?.cancel()
+                mutate(id) { $0.phase = .paused; $0.failure = nil }
+            } catch { fail(id, error: error) }
+            return
+        }
         if portableTasks[id] != nil { pauseForegroundHLS(id: id); return }
         guard let task = tasks[id], record.phase == .downloading else { activityDidChange(); return }
         if requiresForeground(record) { pauseForegroundHLS(id: id); return }
@@ -596,6 +681,11 @@ final class DownloadManager: NSObject, ObservableObject {
     private func resumeImmediately(id: UUID) {
         guard let record = records.first(where: { $0.id == id }), resumable(record), !pendingPause.contains(id) else { return }
         touchedIDs.insert(id)
+        if backgroundHLS?.jobs[id] != nil {
+            mutate(id) { $0.phase = .downloading; $0.failure = nil }
+            do { try backgroundHLS.resume(id: id) } catch { fail(id, error: error) }
+            return
+        }
         if let task = tasks[id], task.state == .suspended,
            task is AVAssetDownloadTask || task is URLSessionDownloadTask {
             // Restored ordinary background tasks are suspended too. Reuse their
@@ -633,7 +723,7 @@ final class DownloadManager: NSObject, ObservableObject {
                 if let token = preflightTokens[id], token == tokens[id], preflightTasks[id] != nil { return id }
                 if tasks[id] != nil { return id } // A restored system task may still carry its queued record.
             }
-            if record.phase == .downloading, tasks[id] != nil || browserTasks[id] != nil || portableTasks[id] != nil { return id }
+            if record.phase == .downloading, tasks[id] != nil || browserTasks[id] != nil || portableTasks[id] != nil || backgroundHLS?.jobs[id] != nil { return id }
             if record.phase == .validating,
                portableTasks[id] != nil || tokens[id].map({ validations.contains($0) }) == true { return id }
             return nil
@@ -688,6 +778,8 @@ final class DownloadManager: NSObject, ObservableObject {
         await begin(id: id, cookies: cookies)
     }
     func cancel(id: UUID) {
+        backgroundHLS?.cancel(id: id)
+        assemblyGenerations.removeValue(forKey: id)
         removePendingResume(id)
         launchingResumeTokens.removeValue(forKey: id)
         preflightTokens.removeValue(forKey: id)
@@ -719,8 +811,15 @@ final class DownloadManager: NSObject, ObservableObject {
     func setAppInBackground(_ value: Bool) {
         appInBackground = value
         if value {
+            for id in Array(portableTasks.keys) where backgroundHLS?.jobs[id] != nil {
+                assemblyGenerations.removeValue(forKey: id)
+                portableTasks.removeValue(forKey: id)?.cancel()
+                mutate(id) { $0.phase = .validating }
+            }
             pauseForegroundHLSDownloads()
             for task in cloudPreparationTasks.values { task.cancel() }
+        } else {
+            for job in backgroundHLS?.jobs.values.map({ $0 }) ?? [] where job.ready { backgroundHLSChanged(job) }
         }
         activityDidChange()
     }
@@ -734,7 +833,8 @@ final class DownloadManager: NSObject, ObservableObject {
     }
 
     private func requiresForeground(_ record: DownloadRecord) -> Bool {
-        record.candidate.kind == .hls && (record.candidate.requestContext != nil || preferPortableHLS)
+        if tasks[record.id] is AVAssetDownloadTask, hlsRelays[record.id] == nil { return false }
+        return record.candidate.kind == .hls && backgroundHLS?.jobs[record.id] == nil && (record.candidate.requestContext != nil || preferPortableHLS)
     }
 
     private func pauseForegroundHLS(id: UUID) {
@@ -873,7 +973,7 @@ final class DownloadManager: NSObject, ObservableObject {
     private func persistCacheState(_ proposed: [DownloadRecord]) throws {
         try cacheEvictionHooks.beforeStateWrite?()
         let archive = DownloadArchive(records: proposed, authenticated: authenticated,
-            expectations: expectations, attempts: tokens)
+            expectations: expectations, attempts: tokens, foregroundHLS: foregroundOnlyHLS)
         try JSONEncoder().encode(archive).write(to: stateURL,
             options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         // Complete the file write before reclaiming the media it describes.
@@ -1204,7 +1304,7 @@ final class DownloadManager: NSObject, ObservableObject {
             var updatedExpectations = expectations; updatedExpectations.removeValue(forKey: manifest.id)
             var updatedAttempts = tokens; updatedAttempts.removeValue(forKey: manifest.id)
             let archive = DownloadArchive(records: updated, authenticated: updatedAuthentication,
-                expectations: updatedExpectations, attempts: updatedAttempts)
+                expectations: updatedExpectations, attempts: updatedAttempts, foregroundHLS: foregroundOnlyHLS)
             let state = try JSONEncoder().encode(archive)
 
             guard isCurrent(), !Task.isCancelled else { throw CancellationError() }
@@ -1268,6 +1368,15 @@ final class DownloadManager: NSObject, ObservableObject {
 
     private func restoreTasks() async {
         defer { restoringTasks = false; activityDidChange() }
+        await backgroundHLS.restore { job in
+            guard self.tokens[job.id] == job.attempt,
+                  let record = self.records.first(where: { $0.id == job.id }),
+                  [.downloading, .validating, .paused].contains(record.phase) else { return false }
+            // Export already committed its complete MP4 before a process exit.
+            // Keep that owned file and let the ordinary validator finish it;
+            // do not export a second movie and orphan the first one.
+            return !(record.phase == .validating && self.localURL(for: record) != nil)
+        }
         let fileTasks = await backgroundSession.allTasks
         let assetTasks = await hlsSession.allTasks
         for task in fileTasks + assetTasks {
@@ -1293,7 +1402,7 @@ final class DownloadManager: NSObject, ObservableObject {
             if record.phase == .paused { task.suspend() } else { task.resume() }
         }
         for id in restoringIDs {
-            guard !touchedIDs.contains(id), tasks[id] == nil,
+            guard !touchedIDs.contains(id), tasks[id] == nil, backgroundHLS.jobs[id] == nil,
                   let record = records.first(where: { $0.id == id }),
                   !validations.contains(tokens[id] ?? "") else { continue }
             if record.phase == .validating, let url = localURL(for: record) {
@@ -1468,6 +1577,8 @@ final class DownloadManager: NSObject, ObservableObject {
 
     private func fail(_ id: UUID, error: Error) {
         guard let record = records.first(where: { $0.id == id }), ![.cancelled, .paused, .complete].contains(record.phase) else { return }
+        backgroundHLS?.cancel(id: id)
+        assemblyGenerations.removeValue(forKey: id)
         if let token = tokens[id] { diagnostics.update(token: token, bytes: record.bytesWritten, error: error) }
         mutate(id) { $0.phase = .failed; $0.failure = safeMessage(error) }
         tasks.removeValue(forKey: id)?.cancel(); tokens.removeValue(forKey: id)

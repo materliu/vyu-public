@@ -42,6 +42,7 @@
 		5B6B719F9CAEF2144CF7AA7A /* CandidateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7112CB91FD28FA71B2AEADE1 /* CandidateSheet.swift */; };
 		5D4B88309F7AAE9D5877BD76 /* OfflineSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78E6857DCD931EEF307102D7 /* OfflineSelectionTests.swift */; };
 		5D5487B1F619F469E8785C00 /* BrowserPopup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424F6AFED699028A1DEF996E /* BrowserPopup.swift */; };
+		5DAEC0D1916E3A56912BC3B8 /* BackgroundHLSStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D050B82CB6FA5107E7ABA4A0 /* BackgroundHLSStore.swift */; };
 		61824FE9388FFFC044BE9CF1 /* HLSInspectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 575986695A30539D8F41DF20 /* HLSInspectionTests.swift */; };
 		6CE0EAB394D2BD128B8A0BF0 /* BrowserPopupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9DF486A80B9B0C2B907CE7 /* BrowserPopupTests.swift */; };
 		6E6553559338F13EF1BBB55B /* VideoCoverUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A55EF96D54CA2C643F991A82 /* VideoCoverUITests.swift */; };
@@ -199,6 +200,7 @@
 		CDBD011777AECFE6F115D98A /* HLSRelayLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HLSRelayLifecycleTests.swift; sourceTree = "<group>"; };
 		CF05C89B434E29387B87C578 /* VideoMetadataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoMetadataStore.swift; sourceTree = "<group>"; };
 		CF9DF486A80B9B0C2B907CE7 /* BrowserPopupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPopupTests.swift; sourceTree = "<group>"; };
+		D050B82CB6FA5107E7ABA4A0 /* BackgroundHLSStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundHLSStore.swift; sourceTree = "<group>"; };
 		D30675BF7688FA661C65DBE0 /* VYuApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VYuApp.swift; sourceTree = "<group>"; };
 		DFB494976C80F71346732612 /* VYuTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = VYuTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DFFEA5C1937133EBD30D42E6 /* VideoMetadataStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoMetadataStoreTests.swift; sourceTree = "<group>"; };
@@ -302,6 +304,7 @@
 		781B20FFDAC01FCCE8771D57 /* Downloads */ = {
 			isa = PBXGroup;
 			children = (
+				D050B82CB6FA5107E7ABA4A0 /* BackgroundHLSStore.swift */,
 				99E610642506762E666E5CB4 /* DownloadDiagnostics.swift */,
 				715E52A114DE6136E16617CD /* DownloadIdleTimerController.swift */,
 				A809CA351C7B4380B72AB484 /* DownloadManager.swift */,
@@ -590,6 +593,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5DAEC0D1916E3A56912BC3B8 /* BackgroundHLSStore.swift in Sources */,
 				126E3FFF9F28C1A857A1C9EC /* BrowserFileDownload.swift in Sources */,
 				2DA7284F59EE58F8B47BA118 /* BrowserModel.swift in Sources */,
 				5D5487B1F619F469E8785C00 /* BrowserPopup.swift in Sources */,
@@ -753,7 +757,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "$(VYU_SIGNING_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 18;
+				CURRENT_PROJECT_VERSION = 19;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -850,7 +854,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "$(VYU_SIGNING_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 18;
+				CURRENT_PROJECT_VERSION = 19;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
