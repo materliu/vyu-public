@@ -447,6 +447,12 @@ struct ContentView: View {
                                     Label(videoMetadata.isFavorite(item.id) ? "取消收藏" : "收藏",
                                           systemImage: videoMetadata.isFavorite(item.id) ? "heart.slash" : "heart")
                                 }.tint(.pink).accessibilityIdentifier("swipeVideoFavorite")
+                            }.swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button {
+                                    namePresentation = VideoNamePresentation(id: item.id, originalTitle: item.title)
+                                } label: {
+                                    Label("重命名", systemImage: "pencil")
+                                }.tint(.blue).accessibilityIdentifier("swipeVideoRename")
                             }
                         }
                     }

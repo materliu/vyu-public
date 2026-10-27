@@ -2,6 +2,102 @@ import XCTest
 
 /// Every test uses a fresh local library and the loopback-only cloud/media fixture.
 final class VideoRenameUITests: XCTestCase {
+    func testLocalSwipesFavoriteRenameSaveCancelAndSelectionMode() throws {
+        continueAfterFailure = false
+        let fixtureID = UUID().uuidString
+        let app = launch(fixtureID: fixtureID)
+        defer { app.terminate() }
+        downloadDirectVideo(in: app)
+        let row = app.buttons["offlineVideoRow"]
+        let originalTitle = row.label
+
+        toggleFavoriteBySwiping(row, in: app)
+        waitForValue(containing: "已收藏", on: row)
+        XCTAssertFalse(app.staticTexts["offlinePlaybackLabel"].exists)
+
+        openRenameBySwiping(row, in: app)
+        XCTAssertEqual(nameInput(in: app).value as? String, originalTitle)
+        replaceName(with: "未保存的滑动改名", in: app)
+        app.buttons["cancelVideoName"].tap()
+        XCTAssertTrue(nameInput(in: app).waitForNonExistence(timeout: 5))
+        XCTAssertEqual(row.label, originalTitle)
+        waitForValue(containing: "已收藏", on: row)
+
+        openRenameBySwiping(row, in: app)
+        replaceName(with: "Swipe Meadow", in: app)
+        saveName(in: app)
+        waitForLabel("Swipe Meadow", on: row)
+        waitForValue(containing: "已收藏", on: row)
+        XCTAssertFalse(app.staticTexts["offlinePlaybackLabel"].exists,
+                       "Swiping to rename must not activate the underlying playback button.")
+
+        app.buttons["offlineSelectionMode"].tap()
+        let selection = selectionRows(in: app).firstMatch
+        XCTAssertTrue(selection.waitForExistence(timeout: 5))
+        selection.swipeLeft()
+        XCTAssertFalse(app.buttons["swipeVideoRename"].exists)
+        XCTAssertFalse(nameInput(in: app).exists)
+        selection.swipeRight()
+        XCTAssertFalse(app.buttons["swipeVideoFavorite"].exists)
+        XCTAssertFalse(app.staticTexts["offlinePlaybackLabel"].exists)
+        app.buttons["offlineSelectionMode"].tap()
+
+        app.terminate()
+        app.launchArguments = ["--fixture-cloud-sync", fixtureID]
+        app.launch()
+        app.tabBars.buttons["离线"].tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        waitForLabel("Swipe Meadow", on: row)
+        waitForValue(containing: "已收藏", on: row)
+        toggleFavoriteBySwiping(row, in: app)
+        wait(for: NSPredicate(format: "exists == true AND NOT (value CONTAINS %@)", "已收藏"), on: row)
+        XCTAssertFalse(app.staticTexts["offlinePlaybackLabel"].exists)
+    }
+
+    func testCloudSwipesFavoriteAndRenameWithoutRestoringMedia() throws {
+        continueAfterFailure = false
+        let fixtureID = UUID().uuidString
+        let app = launch(fixtureID: fixtureID)
+        defer { app.terminate() }
+        downloadDirectVideo(in: app)
+        wait(for: NSPredicate(format: "label CONTAINS %@", "1 个视频已同步"),
+             on: app.staticTexts["cloudSyncStatus"], timeout: 20)
+        app.buttons["manageOfflineVideo"].tap()
+        app.buttons["删除本机缓存"].tap()
+        let row = app.buttons["cloudVideoRow"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        let originalTitle = row.label
+
+        toggleFavoriteBySwiping(row, in: app)
+        waitForValue(containing: "已收藏", on: row)
+        openRenameBySwiping(row, in: app)
+        replaceName(with: "未保存的云端改名", in: app)
+        app.buttons["cancelVideoName"].tap()
+        XCTAssertTrue(nameInput(in: app).waitForNonExistence(timeout: 5))
+        XCTAssertEqual(row.label, originalTitle)
+        XCTAssertFalse(app.buttons["offlineVideoRow"].exists)
+
+        openRenameBySwiping(row, in: app)
+        replaceName(with: "Swipe Cloud Meadow", in: app)
+        saveName(in: app)
+        waitForLabel("Swipe Cloud Meadow", on: row)
+        waitForValue(containing: "已收藏", on: row)
+        XCTAssertFalse(app.buttons["offlineVideoRow"].exists,
+                       "Swiping a cloud row must not begin a media restore.")
+        XCTAssertFalse(app.staticTexts["offlinePlaybackLabel"].exists)
+        toggleFavoriteBySwiping(row, in: app)
+        wait(for: NSPredicate(format: "exists == true AND NOT (value CONTAINS %@)", "已收藏"), on: row)
+
+        app.terminate()
+        app.launchArguments = ["--fixture-cloud-sync", fixtureID]
+        app.launch()
+        app.tabBars.buttons["离线"].tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        waitForLabel("Swipe Cloud Meadow", on: row)
+        XCTAssertFalse(app.buttons["offlineVideoRow"].exists)
+        XCTAssertFalse(app.staticTexts["offlinePlaybackLabel"].exists)
+    }
+
     func testRenameCancelEmptyInputSearchAndRelaunchPreserveOrganization() throws {
         continueAfterFailure = false
         let fixtureID = UUID().uuidString
@@ -228,6 +324,28 @@ final class VideoRenameUITests: XCTestCase {
         rename.tap()
         XCTAssertTrue(nameInput(in: app).waitForExistence(timeout: 5))
         XCTAssertTrue(app.navigationBars["重命名"].exists)
+    }
+
+    private func openRenameBySwiping(_ row: XCUIElement, in app: XCUIApplication) {
+        row.swipeLeft()
+        let rename = app.buttons["swipeVideoRename"]
+        XCTAssertTrue(rename.waitForExistence(timeout: 5))
+        XCTAssertFalse(nameInput(in: app).exists,
+                       "A left swipe reveals the action without opening the editor automatically.")
+        rename.tap()
+        XCTAssertTrue(nameInput(in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["重命名"].exists)
+    }
+
+    private func toggleFavoriteBySwiping(_ row: XCUIElement, in app: XCUIApplication) {
+        // A partial right swipe reveals the existing explicit favorite action;
+        // a full swipe remains available to people who prefer that shortcut.
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).press(
+            forDuration: 0.05,
+            thenDragTo: row.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5)))
+        let favorite = app.buttons["swipeVideoFavorite"]
+        XCTAssertTrue(favorite.waitForExistence(timeout: 5))
+        favorite.tap()
     }
 
     private func replaceName(with value: String, in app: XCUIApplication) {

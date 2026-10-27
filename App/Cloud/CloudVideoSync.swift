@@ -286,15 +286,22 @@ final class CloudVideoSync: ObservableObject {
 
     /// Reclaims redundant native iCloud media cache, including a second local media copy.
     @discardableResult
-    func evictCloudOnlyMediaCaches(isCurrent: @escaping @MainActor () -> Bool) async -> Int64 {
+    func evictCloudOnlyMediaCaches(ids: Set<UUID>? = nil,
+                                  onlyRedundant: Bool = false,
+                                  isCurrent: @escaping @MainActor () -> Bool) async -> Int64 {
         guard containerOverride == nil, let account, let container, let access else { return 0 }
         let current = generation
         var reclaimed: Int64 = 0
         for entry in Array(entries.values) {
             let id = entry.id
+            if let ids, !ids.contains(id) { continue }
             guard isCurrent(), generation == current else { break }
             guard cacheEvictionWork[id] == nil, cacheEvictionAllowed(id: id, account: account),
                   entry.uploaded, !entry.transferError else { continue }
+            if onlyRedundant {
+                guard let record = downloads.records.first(where: { $0.id == id }),
+                      downloads.localURL(for: record) != nil, downloads.canEvictLocalCache(record) else { continue }
+            }
             if let record = downloads.records.first(where: { $0.id == id }),
                [.queued, .downloading, .paused, .validating].contains(record.phase) { continue }
             if let record = downloads.records.first(where: { $0.id == id }),

@@ -138,6 +138,8 @@ enum VideoMetadataError: LocalizedError, Equatable {
         }
     }
 
+    var isReadable: Bool { stateReadable }
+
     func metadata(for id: UUID) -> VideoMetadata? { entries[id] }
     func isFavorite(_ id: UUID) -> Bool { entries[id]?.isFavorite ?? false }
     func tags(for id: UUID) -> [String] { entries[id]?.tags ?? [] }

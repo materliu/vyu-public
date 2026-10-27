@@ -57,7 +57,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         let cloud = CloudVideoSync(downloads: downloads, metadataStore: videoMetadata,
             containerOverride: fixtureRoot?.appendingPathComponent("FixtureCloud", isDirectory: true))
         _cloud = StateObject(wrappedValue: cloud)
-        let storage = VideoStorageOptimizer(downloads: downloads, cloud: cloud, budgetBytes: storageBudget)
+        let storage = VideoStorageOptimizer(downloads: downloads, cloud: cloud, metadataStore: videoMetadata,
+                                            budgetBytes: storageBudget)
         storage.setAppActive(false)
         _storage = StateObject(wrappedValue: storage)
     }

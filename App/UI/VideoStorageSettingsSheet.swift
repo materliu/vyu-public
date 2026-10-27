@@ -15,7 +15,7 @@ struct VideoStorageSettingsSheet: View {
                         catch { errorMessage = error.localizedDescription }
                     })).accessibilityIdentifier("optimizeLocalStorageToggle")
                     LabeledContent("视频缓存上限", value: "1 GB")
-                    Text("保留最近使用的视频。超过上限时，释放已确认上传到 iCloud 的旧副本；再次播放时下载。")
+                    Text("优先保留收藏的视频，同类优先保留最近更新的内容。超过上限时，释放已确认上传到 iCloud 的旧副本；再次播放时下载。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section {

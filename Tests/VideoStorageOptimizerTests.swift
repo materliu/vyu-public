@@ -80,7 +80,8 @@ import XCTest
     func testDefaultBudgetIsOneDecimalGigabyte() throws {
         let manager = try makeManager(count: 0)
         let sync = makeSync(manager, cloud: try temporaryDirectory())
-        let optimizer = VideoStorageOptimizer(downloads: manager, cloud: sync, automaticallyMaintain: false)
+        let optimizer = VideoStorageOptimizer(downloads: manager, cloud: sync,
+            metadataStore: VideoMetadataStore(rootDirectory: manager.rootDirectory), automaticallyMaintain: false)
         optimizers.append(optimizer)
         XCTAssertEqual(optimizer.budgetBytes, 1_000_000_000)
         XCTAssertFalse(optimizer.isEnabled)
@@ -133,22 +134,36 @@ import XCTest
         XCTAssertEqual(lastUsed.count, 2)
     }
 
-    func testPersistedLeastRecentlyUsedOrderKeepsRecentlyOpenedVideo() async throws {
-        let (manager, cloud, sync) = try await syncedLibrary(count: 3)
+    func testPersistedUpdateOrderKeepsRecentlyEditedVideoDespitePlaybackHistory() async throws {
+        let manager = try makeManager(count: 3)
         let records = manager.records
+        let metadata = VideoMetadataStore(rootDirectory: manager.rootDirectory)
+        let updatedAt = Date(timeIntervalSince1970: 1_780_000_000)
+        try saveMetadata(records[0], in: metadata, updatedAt: updatedAt)
+        try saveMetadata(records[1], in: metadata, updatedAt: updatedAt.addingTimeInterval(20))
+        try saveMetadata(records[2], in: metadata, updatedAt: updatedAt.addingTimeInterval(10))
+        let cloud = try temporaryDirectory()
+        let sync = makeSync(manager, cloud: cloud, metadata: metadata)
+        await sync.refreshAccount()
+        XCTAssertTrue(sync.visibleEntries.allSatisfy { $0.uploaded && !$0.transferError })
         let meter = makeOptimizer(manager, sync: sync)
         await meter.refreshUsage()
         let oneVideoBudget = meter.localBytes / 3 + 1_024
         let clock = StorageTestClock()
-        let optimizer = makeOptimizer(manager, sync: sync, budget: oneVideoBudget, now: { clock.date })
+        let optimizer = makeOptimizer(manager, sync: sync, metadata: metadata,
+                                      budget: oneVideoBudget, now: { clock.date })
         try optimizer.setEnabled(true)
-        for index in [2, 0, 1] {
+        // The least recently edited video is played last. Playback must not
+        // displace a more recently updated library entry under the new policy.
+        for index in [1, 2, 0] {
             optimizer.markUsed(records[index].id)
             clock.date.addTimeInterval(10)
         }
         let remoteBefore = try cloudFiles(cloud)
-        // Re-create the optimizer so eviction must use the saved access order.
-        let relaunched = makeOptimizer(manager, sync: sync, budget: oneVideoBudget, now: { clock.date })
+        // Reload both stores to exercise persisted edits and the old access ledger.
+        let relaunched = makeOptimizer(manager, sync: sync,
+            metadata: VideoMetadataStore(rootDirectory: manager.rootDirectory),
+            budget: oneVideoBudget, now: { clock.date })
         await relaunched.maintain()
         XCTAssertLessThanOrEqual(relaunched.localBytes, oneVideoBudget)
         XCTAssertNotNil(manager.localURL(for: try record(records[1].id, in: manager)))
@@ -160,6 +175,179 @@ import XCTest
             XCTAssertNotNil(sync.entry(for: evicted.id))
         }
         XCTAssertEqual(try cloudFiles(cloud), remoteBefore)
+    }
+
+    func testCloudOnlyAndLocalCandidatesShareFavoriteAndUpdatePriority() async throws {
+        let manager = try makeManager(count: 4)
+        let records = manager.records
+        let metadata = VideoMetadataStore(rootDirectory: manager.rootDirectory)
+        let date = Date(timeIntervalSince1970: 1_780_000_000)
+        try saveMetadata(records[0], in: metadata, favorite: true, updatedAt: date)
+        try saveMetadata(records[1], in: metadata, updatedAt: date.addingTimeInterval(20))
+        try saveMetadata(records[2], in: metadata, updatedAt: date.addingTimeInterval(10))
+        try saveMetadata(records[3], in: metadata, favorite: true, updatedAt: date.addingTimeInterval(30))
+        let cloud = try temporaryDirectory()
+        let sync = makeSync(manager, cloud: cloud, metadata: metadata)
+        await sync.refreshAccount()
+        XCTAssertEqual(sync.visibleEntries.count, 4)
+        let remoteBefore = try cloudFiles(cloud)
+        manager.removeCache(id: records[0].id)
+        manager.removeCache(id: records[2].id)
+        XCTAssertNil(manager.localURL(for: try record(records[0].id, in: manager)))
+        XCTAssertNil(manager.localURL(for: try record(records[2].id, in: manager)))
+        let optimizer = makeOptimizer(manager, sync: sync, metadata: metadata)
+
+        // Synthetic cloud files are remote fixtures, not native cache bytes.
+        // This checks that native-only entries still enter the same policy order.
+        XCTAssertEqual(optimizer.evictionCandidateIDs(),
+            [records[2].id, records[1].id, records[0].id, records[3].id])
+        XCTAssertEqual(try cloudFiles(cloud), remoteBefore)
+    }
+
+    func testFavoriteIsKeptAheadOfMoreRecentlyUpdatedNonfavorite() async throws {
+        let manager = try makeManager(count: 2)
+        let favorite = manager.records[0]
+        let recent = manager.records[1]
+        let metadata = VideoMetadataStore(rootDirectory: manager.rootDirectory)
+        let date = Date(timeIntervalSince1970: 1_780_000_000)
+        try saveMetadata(favorite, in: metadata, favorite: true, updatedAt: date)
+        try saveMetadata(recent, in: metadata, updatedAt: date.addingTimeInterval(10_000))
+        let cloud = try temporaryDirectory()
+        let sync = makeSync(manager, cloud: cloud, metadata: metadata)
+        await sync.refreshAccount()
+        let budget = await budgetKeeping(1, of: 2, manager: manager, sync: sync)
+        let remoteBefore = try cloudFiles(cloud)
+        let optimizer = makeOptimizer(manager, sync: sync, metadata: metadata, budget: budget)
+        try optimizer.setEnabled(true)
+
+        await optimizer.maintain()
+
+        XCTAssertNotNil(manager.localURL(for: try record(favorite.id, in: manager)))
+        XCTAssertEqual(try record(recent.id, in: manager).localCacheEvicted, true)
+        XCTAssertLessThanOrEqual(optimizer.localBytes, budget)
+        XCTAssertTrue(metadata.isFavorite(favorite.id))
+        XCTAssertEqual(try cloudFiles(cloud), remoteBefore)
+    }
+
+    func testFavoritesOverBudgetKeepTheMostRecentlyUpdatedFavorite() async throws {
+        let manager = try makeManager(count: 3)
+        let records = manager.records
+        let metadata = VideoMetadataStore(rootDirectory: manager.rootDirectory)
+        let date = Date(timeIntervalSince1970: 1_780_000_000)
+        try saveMetadata(records[0], in: metadata, favorite: true, updatedAt: date.addingTimeInterval(10))
+        try saveMetadata(records[1], in: metadata, favorite: true, updatedAt: date.addingTimeInterval(20))
+        try saveMetadata(records[2], in: metadata, favorite: true, updatedAt: date)
+        let sync = makeSync(manager, cloud: try temporaryDirectory(), metadata: metadata)
+        await sync.refreshAccount()
+        let budget = await budgetKeeping(1, of: 3, manager: manager, sync: sync)
+        let optimizer = makeOptimizer(manager, sync: sync, metadata: metadata, budget: budget)
+        try optimizer.setEnabled(true)
+
+        await optimizer.maintain()
+
+        XCTAssertNotNil(manager.localURL(for: try record(records[1].id, in: manager)))
+        for index in [0, 2] {
+            XCTAssertEqual(try record(records[index].id, in: manager).localCacheEvicted, true)
+            XCTAssertTrue(metadata.isFavorite(records[index].id), "Reclaiming a cache must not remove the favorite annotation.")
+        }
+        XCTAssertLessThanOrEqual(optimizer.localBytes, budget)
+    }
+
+    func testNewDownloadDatesRemainRecentWhenMetadataIsOlderOrAbsent() async throws {
+        let manager = try makeManager(count: 3)
+        let records = manager.records.sorted { $0.createdAt < $1.createdAt }
+        let metadata = VideoMetadataStore(rootDirectory: manager.rootDirectory)
+        try saveMetadata(records[0], in: metadata, updatedAt: records[0].createdAt.addingTimeInterval(0.5))
+        try saveMetadata(records[1], in: metadata, updatedAt: records[0].createdAt.addingTimeInterval(-100))
+        let sync = makeSync(manager, cloud: try temporaryDirectory(), metadata: metadata)
+        await sync.refreshAccount()
+        let budget = await budgetKeeping(2, of: 3, manager: manager, sync: sync)
+        let optimizer = makeOptimizer(manager, sync: sync, metadata: metadata, budget: budget)
+        try optimizer.setEnabled(true)
+
+        await optimizer.maintain()
+
+        XCTAssertEqual(try record(records[0].id, in: manager).localCacheEvicted, true)
+        XCTAssertNotNil(manager.localURL(for: try record(records[1].id, in: manager)))
+        XCTAssertNotNil(manager.localURL(for: try record(records[2].id, in: manager)))
+        XCTAssertLessThanOrEqual(optimizer.localBytes, budget)
+    }
+
+    func testLiveFavoriteChangeAfterOptimizerCreationUpdatesRetention() async throws {
+        let manager = try makeManager(count: 2)
+        let records = manager.records.sorted { $0.createdAt < $1.createdAt }
+        let metadata = VideoMetadataStore(rootDirectory: manager.rootDirectory)
+        let sync = makeSync(manager, cloud: try temporaryDirectory(), metadata: metadata)
+        await sync.refreshAccount()
+        let budget = await budgetKeeping(1, of: 2, manager: manager, sync: sync)
+        let optimizer = makeOptimizer(manager, sync: sync, metadata: metadata, budget: budget)
+        try optimizer.setEnabled(true)
+
+        try metadata.toggleFavorite(records[0].id)
+        await sync.synchronize()
+        await optimizer.maintain()
+
+        XCTAssertNotNil(manager.localURL(for: try record(records[0].id, in: manager)))
+        XCTAssertEqual(try record(records[1].id, in: manager).localCacheEvicted, true)
+        XCTAssertLessThanOrEqual(optimizer.localBytes, budget)
+    }
+
+    func testUnsafeAndInUseNonfavoritesStayLocalBeforeAnEligibleFavoriteIsReclaimed() async throws {
+        let manager = try makeManager(count: 3)
+        let records = manager.records
+        let metadata = VideoMetadataStore(rootDirectory: manager.rootDirectory)
+        let date = Date(timeIntervalSince1970: 1_780_000_000)
+        try saveMetadata(records[0], in: metadata, updatedAt: date)
+        try saveMetadata(records[1], in: metadata, updatedAt: date.addingTimeInterval(10))
+        try saveMetadata(records[2], in: metadata, favorite: true, updatedAt: date.addingTimeInterval(20))
+        let cloud = try temporaryDirectory()
+        try CloudVideoFiles.prepare(container: cloud)
+        let unfinished = CloudVideoFiles.packageURL(records[0].id, container: cloud)
+        try FileManager.default.createDirectory(at: unfinished, withIntermediateDirectories: false)
+        try Data("unfinished publication".utf8).write(to: unfinished.appendingPathComponent("manifest.json"))
+        let sync = makeSync(manager, cloud: cloud, metadata: metadata)
+        await sync.refreshAccount()
+        XCTAssertNil(sync.entry(for: records[0].id))
+        XCTAssertEqual(sync.entry(for: records[1].id)?.uploaded, true)
+        XCTAssertEqual(sync.entry(for: records[2].id)?.uploaded, true)
+        let lease = manager.beginUsingLocalVideo(id: records[1].id)
+        defer { manager.endUsingLocalVideo(lease) }
+        let remoteBefore = try cloudFiles(cloud)
+        let optimizer = makeOptimizer(manager, sync: sync, metadata: metadata, budget: 1)
+        try optimizer.setEnabled(true)
+
+        await optimizer.maintain()
+
+        for index in [0, 1] {
+            let local = try XCTUnwrap(manager.localURL(for: try record(records[index].id, in: manager)))
+            XCTAssertEqual(try Data(contentsOf: local), fixture)
+        }
+        XCTAssertEqual(try record(records[2].id, in: manager).localCacheEvicted, true)
+        XCTAssertGreaterThan(optimizer.localBytes, optimizer.budgetBytes)
+        XCTAssertEqual(try cloudFiles(cloud), remoteBefore)
+    }
+
+    func testUnreadableMetadataPreservesEveryFileInsteadOfTreatingFavoritesAsEmpty() async throws {
+        let manager = try makeManager(count: 2)
+        let metadata = VideoMetadataStore(rootDirectory: manager.rootDirectory)
+        try metadata.toggleFavorite(manager.records[0].id)
+        let sync = makeSync(manager, cloud: try temporaryDirectory(), metadata: metadata)
+        await sync.refreshAccount()
+        let file = manager.rootDirectory.appendingPathComponent("VideoMetadata/metadata.json")
+        let corrupted = Data("{\"entries\": [unfinished".utf8)
+        try corrupted.write(to: file)
+        let unreadable = VideoMetadataStore(rootDirectory: manager.rootDirectory)
+        let optimizer = makeOptimizer(manager, sync: sync, metadata: unreadable, budget: 1)
+        try optimizer.setEnabled(true)
+        let before = try localFiles(manager)
+
+        await optimizer.maintain()
+
+        XCTAssertEqual(try localFiles(manager), before)
+        XCTAssertTrue(manager.records.allSatisfy { $0.phase == .complete && $0.localCacheEvicted != true })
+        XCTAssertEqual(try Data(contentsOf: file), corrupted)
+        XCTAssertGreaterThan(optimizer.localBytes, optimizer.budgetBytes)
+        XCTAssertNotNil(optimizer.message)
     }
 
     func testEvictionPreservesAnnotationsAndPreviewAndCloudRestoreRemainsPlayable() async throws {
@@ -354,12 +542,28 @@ import XCTest
     }
 
     private func makeOptimizer(_ manager: DownloadManager, sync: CloudVideoSync,
+                               metadata: VideoMetadataStore? = nil,
                                budget: Int64 = 1_000_000_000,
                                now: @escaping () -> Date = Date.init) -> VideoStorageOptimizer {
-        let optimizer = VideoStorageOptimizer(downloads: manager, cloud: sync, budgetBytes: budget,
+        let optimizer = VideoStorageOptimizer(downloads: manager, cloud: sync,
+                                              metadataStore: metadata ?? VideoMetadataStore(rootDirectory: manager.rootDirectory), budgetBytes: budget,
                                               now: now, automaticallyMaintain: false)
         optimizers.append(optimizer)
         return optimizer
+    }
+
+    private func budgetKeeping(_ retained: Int, of count: Int, manager: DownloadManager,
+                               sync: CloudVideoSync) async -> Int64 {
+        let meter = makeOptimizer(manager, sync: sync)
+        await meter.refreshUsage()
+        return meter.localBytes / Int64(count) * Int64(retained) + 1_024
+    }
+
+    private func saveMetadata(_ record: DownloadRecord, in metadata: VideoMetadataStore,
+                              favorite: Bool = false, updatedAt: Date) throws {
+        let value = VideoMetadata(id: record.id, isFavorite: favorite, tags: [], updatedAt: updatedAt,
+                                  revision: UUID())
+        try metadata.merge([record.id: value])
     }
 
     private func makeManager(count: Int) throws -> DownloadManager {

@@ -21,6 +21,7 @@ import Foundation
     }
     private let downloads: DownloadManager
     private let cloud: CloudVideoSync
+    private let metadataStore: VideoMetadataStore
     private let directory: URL
     private let now: () -> Date
     private let automaticallyMaintain: Bool
@@ -33,10 +34,11 @@ import Foundation
     private var maintenanceRequested = false
     private var usageGeneration = UUID()
 
-    init(downloads: DownloadManager, cloud: CloudVideoSync,
+    init(downloads: DownloadManager, cloud: CloudVideoSync, metadataStore: VideoMetadataStore,
          budgetBytes: Int64 = 1_000_000_000, now: @escaping () -> Date = Date.init,
          automaticallyMaintain: Bool = true) {
         self.downloads = downloads; self.cloud = cloud
+        self.metadataStore = metadataStore
         self.budgetBytes = max(1, budgetBytes); self.now = now
         self.automaticallyMaintain = automaticallyMaintain
         directory = downloads.rootDirectory.appendingPathComponent("VideoStorage", isDirectory: true)
@@ -59,6 +61,13 @@ import Foundation
         } catch {
             stateReadable = false; message = "无法读取本地存储设置，已暂停自动优化。"
         }
+        metadataStore.$entries.dropFirst().removeDuplicates().sink { [weak self] _ in
+            // A favorite/edit made while cloud proof is running changes which
+            // file should survive. Revoke that pass before it can remove bytes.
+            guard let self else { return }
+            self.generation = UUID(); self.cloud.cancelCacheEvictions()
+            if self.automaticallyMaintain { self.requestMaintenance() }
+        }.store(in: &subscriptions)
         if automaticallyMaintain {
             downloads.$records.dropFirst().sink { [weak self] _ in self?.requestMaintenance() }.store(in: &subscriptions)
             downloads.$localVideoUseIDs.dropFirst().sink { [weak self] _ in self?.requestMaintenance() }.store(in: &subscriptions)
@@ -165,28 +174,44 @@ import Foundation
         guard await refreshUsage() else { return }
         guard isEnabled, stateReadable, appActive, !Task.isCancelled else { return }
         guard usageAvailable else { return }
+        guard metadataStore.isReadable else {
+            message = "无法读取收藏和更新记录，已保留本地副本。"
+            return
+        }
         guard cloud.isAvailable, !cloud.accountChanged else {
             message = "连接当前 iCloud 账号后，才能校验并释放本地副本。"
             return
         }
         let current = generation
-        func valid() -> Bool { isEnabled && stateReadable && appActive && generation == current && !Task.isCancelled }
+        func valid() -> Bool {
+            isEnabled && stateReadable && metadataStore.isReadable && appActive && generation == current && !Task.isCancelled
+        }
         var released = 0
         var verificationFailed = false
         if localBytes > budgetBytes {
-            _ = await cloud.evictCloudOnlyMediaCaches(isCurrent: { valid() })
-            guard valid() else { return }
-            guard await refreshUsage() else { return }
-            guard usageAvailable else { return }
-            let candidates = downloads.records.filter { downloads.canEvictLocalCache($0) }.sorted { lhs, rhs in
-                let a = state.lastUsed[lhs.id.uuidString] ?? lhs.createdAt
-                let b = state.lastUsed[rhs.id.uuidString] ?? rhs.createdAt
-                return a == b ? lhs.id.uuidString < rhs.id.uuidString : a < b
+            if cloudCacheBytes > 0 {
+                // Drop redundant native copies before choosing any video to
+                // remove. Keeping two copies of a favorite must not displace
+                // the only local copy of another video.
+                _ = await cloud.evictCloudOnlyMediaCaches(onlyRedundant: true, isCurrent: { valid() })
+                guard valid() else { return }
+                guard await refreshUsage() else { return }
+                guard usageAvailable else { return }
             }
-            for record in candidates {
+            // Rank both native cloud caches and app files together. Otherwise a
+            // favorite cached only by iCloud could be evicted before an old
+            // nonfavorite in Media just because the two copies use different paths.
+            for id in evictionCandidateIDs() {
+                guard valid(), localBytes > budgetBytes else { break }
+                if cloudCacheBytes > 0 {
+                    _ = await cloud.evictCloudOnlyMediaCaches(ids: [id], isCurrent: { valid() })
+                    guard valid() else { return }
+                    guard await refreshUsage() else { return }
+                    guard usageAvailable else { return }
+                }
                 guard valid(), localBytes > budgetBytes else { break }
                 do {
-                    if try await cloud.evictLocalCacheIfRecoverable(id: record.id, isCurrent: { valid() }) {
+                    if try await cloud.evictLocalCacheIfRecoverable(id: id, isCurrent: { valid() }) {
                         released += 1
                         guard await refreshUsage() else { return }
                         guard usageAvailable else { return }
@@ -204,6 +229,27 @@ import Foundation
         } else if released > 0 {
             message = "已释放 \(released) 个本地副本，需要播放时会从 iCloud 下载。"
         } else { message = "视频缓存已在上限内，需要播放时可从 iCloud 下载。" }
+    }
+
+    /// Least valuable copies go first: nonfavorites, then older edits/additions.
+    /// Playback access is kept in the legacy local ledger but does not rank updates.
+    func evictionCandidateIDs() -> [UUID] {
+        var additions = cloud.entries.mapValues { $0.manifest.createdAt }
+        for record in downloads.records {
+            if additions[record.id] != nil || downloads.canEvictLocalCache(record) {
+                additions[record.id] = max(additions[record.id] ?? record.createdAt, record.createdAt)
+            }
+        }
+        return additions.keys.sorted { lhs, rhs in
+            let left = metadataStore.metadata(for: lhs)
+            let right = metadataStore.metadata(for: rhs)
+            let leftFavorite = left?.isFavorite ?? false
+            let rightFavorite = right?.isFavorite ?? false
+            if leftFavorite != rightFavorite { return !leftFavorite }
+            let a = max(additions[lhs]!, left?.updatedAt ?? additions[lhs]!)
+            let b = max(additions[rhs]!, right?.updatedAt ?? additions[rhs]!)
+            return a == b ? lhs.uuidString < rhs.uuidString : a < b
+        }
     }
 
     private func persist(_ proposed: State) throws {
