@@ -81,7 +81,10 @@ enum CloudVideoArchive {
             guard data.count <= maximumManifestBytes else { throw CloudVideoArchiveError.invalidManifest }
             // A package is discoverable only after the complete media and optional thumbnail are present.
             try data.write(to: packageURL.appendingPathComponent(manifestFilename), options: .atomic)
-            return manifest
+            // Date encoding converts between epochs and milliseconds. Return the
+            // persisted representation so exact manifest comparisons do not depend
+            // on sub-microsecond precision that JSON cannot round-trip.
+            return try readManifest(at: packageURL)
         } catch {
             if createdDirectory { try? FileManager.default.removeItem(at: packageURL) }
             throw (error as? CloudVideoArchiveError) ?? .fileOperationFailed
@@ -121,6 +124,15 @@ enum CloudVideoArchive {
             throw CloudVideoArchiveError.integrityMismatch
         }
         return url
+    }
+
+    /// Compares an owned local copy with the immutable cloud media declaration.
+    static func verifyMediaFile(at url: URL, manifest: CloudVideoManifest) throws {
+        try validateManifest(manifest)
+        let fingerprint = try hashFile(at: url)
+        guard fingerprint.bytes == manifest.byteCount, fingerprint.sha256 == manifest.sha256 else {
+            throw CloudVideoArchiveError.integrityMismatch
+        }
     }
 
     static func thumbnailData(at packageURL: URL) throws -> Data? {

@@ -41,6 +41,9 @@ import UIKit
     }
 
     func image(for record: DownloadRecord, localURL: URL?, frameSeconds: Double? = nil) async -> UIImage? {
+        if record.localCacheEvicted == true, localURL == nil {
+            return cachedImage(for: record.id)
+        }
         guard record.phase == .complete, let localURL, let key = sourceKey(id: record.id, url: localURL, frameSeconds: frameSeconds) else {
             remove(id: record.id)
             return nil
@@ -80,12 +83,14 @@ import UIKit
 
         let data = await request.task.value
         guard keys[record.id] == key else { return nil }
+        // A completed or cancelled request must not invalidate a preview kept
+        // after its media file was safely released.
+        guard requests[record.id]?.token == request.token else { return images.object(forKey: key as NSString) }
         guard sourceKey(id: record.id, url: localURL, frameSeconds: frameSeconds) == key else {
             if requests[record.id]?.token == request.token { remove(id: record.id) }
             return nil
         }
         // Several visible consumers may be waiting for the same request.
-        guard requests[record.id]?.token == request.token else { return images.object(forKey: key as NSString) }
         requests.removeValue(forKey: record.id)
         guard let data, let result = UIImage(data: data) else {
             // A decoder can be briefly unavailable while an offline package
@@ -97,6 +102,24 @@ import UIKit
         try? data.write(to: cacheURL(key), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         remember(result, key: key)
         return result
+    }
+
+    func prepareForCacheEviction(id: UUID) {
+        requests.removeValue(forKey: id)?.task.cancel()
+        if let key = keys.removeValue(forKey: id) { failures.removeValue(forKey: key) }
+    }
+
+    /// Last locally saved preview remains usable without the original media or
+    /// a network connection. A current cloud JPEG takes priority in cloud rows.
+    func cachedImage(for id: UUID) -> UIImage? {
+        for url in diskImages().filter({ $0.lastPathComponent.hasPrefix(id.uuidString + "_") }) {
+            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+                  values.isRegularFile == true, values.isSymbolicLink != true,
+                  let count = values.fileSize, count <= 4_000_000,
+                  let data = try? Data(contentsOf: url), let image = UIImage(data: data) else { continue }
+            return image
+        }
+        return nil
     }
 
     /// Cancelling a download or deleting its cache also invalidates any pending image.

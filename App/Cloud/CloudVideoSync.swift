@@ -38,6 +38,7 @@ final class CloudVideoSync: ObservableObject {
     private var observations: [NSObjectProtocol] = []
     private var subscription: AnyCancellable?
     private var metadataSubscription: AnyCancellable?
+    private var localUseSubscription: AnyCancellable?
     private var refreshing = false
     private var refreshAgain = false
     private var restoreRequests: Set<UUID> = []
@@ -49,6 +50,7 @@ final class CloudVideoSync: ObservableObject {
         let access: CloudCoverWriteAccess
     }
     private var coverWork: [UUID: CoverWork] = [:]
+    private var cacheEvictionWork: [UUID: CloudCoverWriteAccess] = [:]
 
     /// The override is used only by tests with temporary, local synthetic data.
     init(downloads: DownloadManager, metadataStore: VideoMetadataStore? = nil, containerOverride: URL? = nil,
@@ -90,6 +92,9 @@ final class CloudVideoSync: ObservableObject {
             self?.invalidateCoverWork(metadata: entries)
         }).debounce(for: .milliseconds(350), scheduler: RunLoop.main)
             .sink { [weak self] _ in Task { @MainActor in await self?.synchronize() } }
+        localUseSubscription = downloads.$localVideoUseIDs.dropFirst().sink { [weak self] ids in
+            for id in ids { self?.cacheEvictionWork[id]?.cancel() }
+        }
     }
 
     deinit {
@@ -201,6 +206,7 @@ final class CloudVideoSync: ObservableObject {
     func restore(id: UUID) async {
         guard isAvailable, entries[id] != nil, let account,
               state.owners[id] == nil || state.owners[id] == account else { return }
+        cacheEvictionWork[id]?.cancel()
         pendingPlaybackID = id
         restoreRequests.insert(id)
         operations[id] = "正在从 iCloud 下载，完成后播放"
@@ -213,6 +219,105 @@ final class CloudVideoSync: ObservableObject {
     }
 
     func cancelPendingPlayback() { pendingPlaybackID = nil; readyToPlay = nil }
+
+    func cancelCacheEvictions() {
+        for access in cacheEvictionWork.values { access.cancel() }
+    }
+
+    /// Removes an owned local media file only after independently checking its cloud copy.
+    /// The caller owns the preference/budget decision and may revoke it at any await point.
+    func evictLocalCacheIfRecoverable(id: UUID, isCurrent: @escaping @MainActor () -> Bool) async throws -> Bool {
+        guard isCurrent(), cacheEvictionWork[id] == nil,
+              let account, let container, let access,
+              cacheEvictionAllowed(id: id, account: account),
+              let entry = entries[id], entry.uploaded, !entry.transferError,
+              let record = downloads.records.first(where: { $0.id == id }),
+              downloads.canEvictLocalCache(record),
+              let identity = downloads.cacheFileIdentity(for: record) else { return false }
+        let current = generation
+        let metadata = metadataStore?.metadata(for: id)
+        let evictionAccess = CloudCoverWriteAccess()
+        cacheEvictionWork[id] = evictionAccess
+        defer { if cacheEvictionWork[id] === evictionAccess { cacheEvictionWork.removeValue(forKey: id) } }
+        let ubiquitous = containerOverride == nil
+        let recoverable = try await Task.detached(priority: .utility) {
+            try evictionAccess.check()
+            let result = try CloudVideoFiles.canRemoveLocalCache(entry: entry, localURL: identity.url,
+                container: container, ubiquitous: ubiquitous, access: access, metadata: metadata)
+            try evictionAccess.check()
+            return result
+        }.value
+        try access.check(); try evictionAccess.check()
+        guard recoverable, isCurrent(), generation == current,
+              cacheEvictionAllowed(id: id, account: account), entries[id] == entry,
+              metadataStore?.metadata(for: id) == metadata,
+              downloads.records.contains(record), downloads.canEvictLocalCache(record),
+              downloads.cacheFileIdentity(for: record) == identity else { return false }
+        try access.check(); try evictionAccess.check()
+        // No suspension between the final use/account checks and the durable local removal.
+        let removed = try downloads.evictLocalCache(record: record, expectedIdentity: identity)
+        guard removed else { return false }
+        // Removing the extra iCloud cache is optional. Failure must not turn a successful
+        // local removal into a retry that could touch another record.
+        if ubiquitous, isCurrent(), generation == current, cacheEvictionAllowed(id: id, account: account) {
+            _ = try? await Task.detached(priority: .utility) {
+                try CloudVideoFiles.evictResidentMedia(entry: entry, container: container, ubiquitous: true,
+                    access: access, evictionAccess: evictionAccess)
+            }.value
+        }
+        return true
+    }
+
+    func localCloudMediaUsage() async throws -> Int64 {
+        if containerOverride != nil { return 0 }
+        guard let container, let access, let account, isAvailable,
+              !accountChanged, state.acceptedAccount == account else { throw CloudVideoArchiveError.fileOperationFailed }
+        let current = generation
+        let values = Array(entries.values)
+        let ubiquitous = containerOverride == nil
+        let bytes = try await Task.detached(priority: .utility) {
+            try CloudVideoFiles.residentMediaBytes(entries: values, container: container,
+                ubiquitous: ubiquitous, access: access)
+        }.value
+        try access.check()
+        guard current == generation else { throw CancellationError() }
+        return bytes
+    }
+
+    /// Reclaims redundant native iCloud media cache, including a second local media copy.
+    @discardableResult
+    func evictCloudOnlyMediaCaches(isCurrent: @escaping @MainActor () -> Bool) async -> Int64 {
+        guard containerOverride == nil, let account, let container, let access else { return 0 }
+        let current = generation
+        var reclaimed: Int64 = 0
+        for entry in Array(entries.values) {
+            let id = entry.id
+            guard isCurrent(), generation == current else { break }
+            guard cacheEvictionWork[id] == nil, cacheEvictionAllowed(id: id, account: account),
+                  entry.uploaded, !entry.transferError else { continue }
+            if let record = downloads.records.first(where: { $0.id == id }),
+               [.queued, .downloading, .paused, .validating].contains(record.phase) { continue }
+            if let record = downloads.records.first(where: { $0.id == id }),
+               downloads.localURL(for: record) != nil, !downloads.canEvictLocalCache(record) { continue }
+            let evictionAccess = CloudCoverWriteAccess()
+            cacheEvictionWork[id] = evictionAccess
+            let bytes = (try? await Task.detached(priority: .utility) {
+                try CloudVideoFiles.evictResidentMedia(entry: entry, container: container, ubiquitous: true,
+                    access: access, evictionAccess: evictionAccess)
+            }.value) ?? 0
+            if cacheEvictionWork[id] === evictionAccess { cacheEvictionWork.removeValue(forKey: id) }
+            reclaimed = bytes > Int64.max - reclaimed ? Int64.max : reclaimed + bytes
+        }
+        return reclaimed
+    }
+
+    private func cacheEvictionAllowed(id: UUID, account: String) -> Bool {
+        isSyncEnabled && isAvailable && !accountChanged && self.account == account &&
+            state.acceptedAccount == account && (state.owners[id] == nil || state.owners[id] == account) &&
+            !(state.deletions[account]?.contains(id) ?? false) && !(state.hidden[account]?.contains(id) ?? false) &&
+            operations[id] == nil && !restoreRequests.contains(id) && pendingPlaybackID != id &&
+            readyToPlay?.id != id && coverWork[id] == nil && !downloads.isLocalVideoInUse(id: id)
+    }
 
     func removeLocalCache(id: UUID) {
         downloads.removeCache(id: id)

@@ -40,4 +40,6 @@ struct DownloadRecord: Identifiable, Codable, Equatable {
     var duration: Double?
     var hasAudio: Bool?
     var createdAt: Date
+    /// A verified iCloud copy may be kept while its replaceable local file is evicted.
+    var localCacheEvicted: Bool? = nil
 }

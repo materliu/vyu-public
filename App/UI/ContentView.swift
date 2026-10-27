@@ -60,6 +60,7 @@ struct ContentView: View {
     @ObservedObject var library: LibraryStore
     @ObservedObject var cloud: CloudVideoSync
     @ObservedObject var videoMetadata: VideoMetadataStore
+    @ObservedObject var storage: VideoStorageOptimizer
     @State private var tab = 0
     @State private var address = ""
     @State private var showAddress = false
@@ -78,6 +79,9 @@ struct ContentView: View {
     @State private var tagPresentation: VideoTagPresentation?
     @State private var namePresentation: VideoNamePresentation?
     @State private var coverPresentation: VideoCoverPresentation?
+    @State private var showStorageSettings = false
+    @State private var playerLease: UUID?
+    @State private var coverLease: UUID?
     @State private var metadataError: String?
     @State private var offlineSelection = OfflineSelection()
 
@@ -89,6 +93,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showAddress) { addressSheet }
         .sheet(isPresented: $showVideoImport) { LocalVideoImportSheet(downloads: downloads) }
+        .sheet(isPresented: $showStorageSettings) { VideoStorageSettingsSheet(storage: storage, cloud: cloud) }
         .sheet(item: $tagPresentation) { presentation in
             VideoTagEditorSheet(videoID: presentation.id, title: presentation.title, videoMetadata: videoMetadata)
         }
@@ -96,7 +101,9 @@ struct ContentView: View {
             VideoNameEditorSheet(videoID: presentation.id, originalTitle: presentation.originalTitle,
                                  videoMetadata: videoMetadata)
         }
-        .sheet(item: $coverPresentation) { presentation in
+        .sheet(item: $coverPresentation, onDismiss: {
+            if let token = coverLease { downloads.endUsingLocalVideo(token); coverLease = nil }
+        }) { presentation in
             VideoCoverPickerSheet(videoID: presentation.id, title: presentation.title, localURL: presentation.localURL,
                                   downloads: downloads, videoMetadata: videoMetadata)
         }
@@ -119,7 +126,9 @@ struct ContentView: View {
                            })
         }
         .overlay(alignment: .top) { downloadToastView }
-        .fullScreenCover(item: $playerRecord) { record in
+        .fullScreenCover(item: $playerRecord, onDismiss: {
+            if let token = playerLease { downloads.endUsingLocalVideo(token); playerLease = nil }
+        }) { record in
             if let url = downloads.localURL(for: record) {
                 OfflinePlayer(url: url, record: record, library: library)
             }
@@ -144,7 +153,7 @@ struct ContentView: View {
         } message: { Text("这会删除 iCloud 副本。其他设备下次同步时也会删除这条视频，无法撤销。") }
         .onChange(of: cloud.readyToPlay) { _, record in
             if let record {
-                if !offlineSelection.isActive { playerRecord = record }
+                if !offlineSelection.isActive { presentPlayer(record) }
                 cloud.readyToPlay = nil
             }
         }
@@ -454,6 +463,10 @@ struct ContentView: View {
                         .accessibilityValue(offlineSelection.isActive ? "选择中" : "未选择")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    Button("本地存储", systemImage: "internaldrive") { showStorageSettings = true }
+                        .accessibilityIdentifier("manageLocalStorage")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("导入录屏/视频", systemImage: "plus") { showVideoImport = true }
                         .accessibilityIdentifier("importOfflineVideo")
                 }
@@ -482,7 +495,7 @@ struct ContentView: View {
 
     private var visibleLocalOfflineIDs: Set<UUID> {
         Set(filteredOfflineItems.compactMap { item in
-            if case .local(let record) = item { return record.id }
+            if case .local(let record) = item, record.localCacheEvicted != true { return record.id }
             return nil
         })
     }
@@ -647,6 +660,7 @@ struct ContentView: View {
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
             Menu {
+                Button("本地存储", systemImage: "internaldrive") { showStorageSettings = true }
                 Button("重新同步", systemImage: "arrow.clockwise") { Task { await cloud.retrySync() } }
                 Button("显示全部云端视频", systemImage: "icloud") { cloud.showCloudVideos() }
             } label: { Image(systemName: "ellipsis.circle").frame(width: 32, height: 32) }
@@ -682,6 +696,7 @@ struct ContentView: View {
                 Color(uiColor: .tertiarySystemFill)
                 if let data = entry.thumbnail, let image = UIImage(data: data) {
                     Image(uiImage: image).resizable().scaledToFit()
+                        .accessibilityLabel("视频预览图").accessibilityIdentifier("cloudVideoThumbnail")
                 } else { Image(systemName: "film").font(.title2).foregroundStyle(.secondary) }
             }.frame(width: 112, height: 70).clipShape(RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 4) {
@@ -697,10 +712,13 @@ struct ContentView: View {
         }
     }
 
-    private func downloadRow(_ record: DownloadRecord) -> some View {
+    @ViewBuilder private func downloadRow(_ record: DownloadRecord) -> some View {
+        if record.localCacheEvicted == true {
+            unavailableCloudRow(record)
+        } else {
         ZStack(alignment: .topTrailing) {
             if record.phase == .complete {
-                Button { cloud.cancelPendingPlayback(); playerRecord = record } label: {
+                Button { cloud.cancelPendingPlayback(); presentPlayer(record) } label: {
                     downloadSummary(record)
                         .padding(.trailing, 44)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -746,8 +764,16 @@ struct ContentView: View {
                 videoOrganizationActions(id: record.id, title: record.candidate.title)
                 if record.phase == .complete, let localURL = downloads.localURL(for: record), localURL.isFileURL {
                     Button("选择封面", systemImage: "photo") {
+                        guard let current = downloads.records.first(where: { $0.id == record.id }),
+                              current.phase == .complete, let currentURL = downloads.localURL(for: current) else {
+                            metadataError = "本机副本已释放，请先从 iCloud 下载视频，再选择封面。"
+                            return
+                        }
+                        if let token = coverLease { downloads.endUsingLocalVideo(token) }
+                        coverLease = downloads.beginUsingLocalVideo(id: record.id)
+                        storage.markUsed(record.id)
                         coverPresentation = VideoCoverPresentation(id: record.id,
-                            title: videoMetadata.displayTitle(for: record.id, fallback: record.candidate.title), localURL: localURL)
+                            title: videoMetadata.displayTitle(for: record.id, fallback: record.candidate.title), localURL: currentURL)
                     }.accessibilityIdentifier("chooseVideoCover")
                 }
                 Divider()
@@ -774,6 +800,38 @@ struct ContentView: View {
             .accessibilityLabel("管理视频")
             .accessibilityIdentifier("manageOfflineVideo")
         }
+        }
+    }
+
+    private func presentPlayer(_ record: DownloadRecord) {
+        guard let current = downloads.records.first(where: { $0.id == record.id }),
+              current.phase == .complete, downloads.localURL(for: current) != nil else {
+            if cloud.entry(for: record.id) != nil { Task { await cloud.restore(id: record.id) } }
+            return
+        }
+        if let token = playerLease { downloads.endUsingLocalVideo(token) }
+        playerLease = downloads.beginUsingLocalVideo(id: record.id)
+        storage.markUsed(record.id)
+        playerRecord = current
+    }
+
+    private func unavailableCloudRow(_ record: DownloadRecord) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            OfflineVideoThumbnail(record: record, localURL: nil, store: downloads.thumbnailStore,
+                                  frameSeconds: videoMetadata.coverFrameSeconds(for: record.id))
+            VStack(alignment: .leading, spacing: 4) {
+                videoTitle(record.candidate.title, id: record.id)
+                Text(MediaDurationFormatter.string(seconds: record.duration)).font(.caption).foregroundStyle(.secondary)
+                Label("本机副本已释放，连接原 iCloud 账号后可下载播放", systemImage: "icloud.and.arrow.down")
+                    .font(.caption).foregroundStyle(.secondary)
+                videoTags(record.id)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            Menu {
+                videoOrganizationActions(id: record.id, title: record.candidate.title)
+                Button("从本机列表移除", systemImage: "minus.circle") { recordToRemove = record }
+            } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+                .accessibilityLabel("管理云端视频")
+        }.padding(.vertical, 10).accessibilityIdentifier("pendingCloudVideoRow")
     }
 
     private func downloadSummary(_ record: DownloadRecord) -> some View {

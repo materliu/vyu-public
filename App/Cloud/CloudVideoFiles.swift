@@ -193,6 +193,140 @@ enum CloudVideoFiles {
         }
     }
 
+    /// A published entry alone is not proof that the server has the matching bytes.
+    /// This check does not request any iCloud download.
+    static func canRemoveLocalCache(entry: CloudVideoEntry, localURL: URL, container: URL,
+                                    ubiquitous: Bool, access: CloudSyncAccess? = nil,
+                                    metadata: VideoMetadata? = nil) throws -> Bool {
+        try access?.check()
+        guard entry.uploaded, !entry.transferError,
+              !coverTombstoneExists(entry.id, container: container) else { return false }
+        let package = packageURL(entry.id, container: container)
+        guard try cacheManifestAvailable(package, ubiquitous: ubiquitous) else { return false }
+        return try coordinatedRead(package) { target in
+            try access?.check()
+            try validateCoverLocation(target, container: container)
+            guard !coverTombstoneExists(entry.id, container: container),
+                  try CloudVideoArchive.readManifest(at: target) == entry.manifest else { return false }
+            if let metadata {
+                try metadata.validate()
+                let marker = target.appendingPathComponent(coverRevisionFilename)
+                let preview = target.appendingPathComponent(CloudVideoArchive.thumbnailFilename)
+                guard metadata.id == entry.id, !coverHasConflicts(target),
+                      try available(marker, ubiquitous: ubiquitous, request: false),
+                      try available(preview, ubiquitous: ubiquitous, request: false),
+                      let jpeg = try CloudVideoArchive.thumbnailData(at: target),
+                      let revision = try readCoverRevision(at: marker),
+                      revision.matches(metadata: metadata, thumbnailJPEG: jpeg) else { return false }
+            }
+            let media = target.appendingPathComponent("video.\(entry.manifest.fileExtension)")
+            if ubiquitous {
+                guard try nativeMediaUploaded(package: target, media: media) else { return false }
+                // A remote placeholder must stay remote while deciding what to reclaim.
+                if try available(media, ubiquitous: true, request: false) {
+                    _ = try CloudVideoArchive.verifyMedia(at: target, manifest: entry.manifest)
+                }
+            } else {
+                // The synthetic container is the mock server; its copy must also be valid.
+                _ = try CloudVideoArchive.verifyMedia(at: target, manifest: entry.manifest)
+            }
+            try CloudVideoArchive.verifyMediaFile(at: localURL, manifest: entry.manifest)
+            try access?.check()
+            guard !coverTombstoneExists(entry.id, container: container) else { return false }
+            if ubiquitous { return try nativeMediaUploaded(package: target, media: media) }
+            return true
+        }
+    }
+
+    /// Counts only allocated, resident media bytes. A synthetic container is a remote server fixture.
+    static func residentMediaBytes(entries: [CloudVideoEntry], container: URL, ubiquitous: Bool,
+                                   access: CloudSyncAccess? = nil) throws -> Int64 {
+        guard ubiquitous else { return 0 }
+        var total: Int64 = 0
+        let videos = container.appendingPathComponent("Videos", isDirectory: true)
+        let packages = try FileManager.default.contentsOfDirectory(at: videos, includingPropertiesForKeys: nil)
+        var mediaURLs: Set<URL> = Set(entries.map {
+            packageURL($0.id, container: container).appendingPathComponent("video.\($0.manifest.fileExtension)")
+        })
+        // Count resident orphan/invalid packages as retained space too. Only known,
+        // uploaded entries are eligible for eviction, but unknown bytes still use disk.
+        for package in packages where UUID(uuidString: package.lastPathComponent) != nil {
+            try validateCoverLocation(package, container: container)
+            for name in try FileManager.default.contentsOfDirectory(atPath: package.path)
+                where ["video.mp4", "video.mov", "video.m4v"].contains(name) {
+                mediaURLs.insert(package.appendingPathComponent(name))
+            }
+        }
+        for media in mediaURLs {
+            try access?.check()
+            try validateCoverLocation(media.deletingLastPathComponent(), container: container)
+            let count = try residentMediaBytes(at: media)
+            total = count > Int64.max - total ? Int64.max : total + count
+        }
+        return total
+    }
+
+    /// Uses the system's eviction operation, which preserves the server copy.
+    /// The synthetic remote directory is never removed or evicted.
+    static func evictResidentMedia(entry: CloudVideoEntry, container: URL, ubiquitous: Bool,
+                                   access: CloudSyncAccess? = nil, evictionAccess: CloudCoverWriteAccess? = nil) throws -> Int64 {
+        guard ubiquitous, entry.uploaded, !entry.transferError else { return 0 }
+        try access?.check(); try evictionAccess?.check()
+        guard !coverTombstoneExists(entry.id, container: container) else { return 0 }
+        let package = packageURL(entry.id, container: container)
+        guard try cacheManifestAvailable(package, ubiquitous: true) else { return 0 }
+        let media = package.appendingPathComponent("video.\(entry.manifest.fileExtension)")
+        let before = try coordinatedRead(package) { target -> Int64 in
+            try access?.check(); try evictionAccess?.check()
+            try validateCoverLocation(target, container: container)
+            guard !coverTombstoneExists(entry.id, container: container),
+                  try CloudVideoArchive.readManifest(at: target) == entry.manifest,
+                  try nativeMediaUploaded(package: target, media: media) else { return 0 }
+            return try residentMediaBytes(at: media)
+        }
+        guard before > 0 else { return 0 }
+        try access?.check(); try evictionAccess?.check()
+        guard !coverTombstoneExists(entry.id, container: container),
+              try nativeMediaUploaded(package: package, media: media) else { return 0 }
+        // evictUbiquitousItem coordinates its own access; do not nest a coordinator.
+        try FileManager.default.evictUbiquitousItem(at: media)
+        let after = (try? residentMediaBytes(at: media)) ?? before
+        return max(0, before - after)
+    }
+
+    private static func cacheManifestAvailable(_ package: URL, ubiquitous: Bool) throws -> Bool {
+        let manifest = package.appendingPathComponent(CloudVideoArchive.manifestFilename)
+        return try available(manifest, ubiquitous: ubiquitous, request: false)
+    }
+
+    private static func nativeMediaUploaded(package: URL, media: URL) throws -> Bool {
+        for url in [package.appendingPathComponent(CloudVideoArchive.manifestFilename), media] {
+            let values = try fresh(url).resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemIsUploadedKey,
+                .ubiquitousItemIsUploadingKey, .ubiquitousItemUploadingErrorKey, .ubiquitousItemDownloadingErrorKey,
+                .ubiquitousItemHasUnresolvedConflictsKey])
+            guard values.isUbiquitousItem == true, values.ubiquitousItemIsUploaded == true,
+                  values.ubiquitousItemIsUploading != true, values.ubiquitousItemUploadingError == nil,
+                  values.ubiquitousItemDownloadingError == nil, values.ubiquitousItemHasUnresolvedConflicts != true,
+                  (NSFileVersion.unresolvedConflictVersionsOfItem(at: url) ?? []).isEmpty else { return false }
+        }
+        return true
+    }
+
+    private static func residentMediaBytes(at url: URL) throws -> Int64 {
+        let names = try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)
+        // Native iCloud may represent an evicted file only by its .icloud placeholder.
+        guard names.contains(url.lastPathComponent) else { return 0 }
+        let values = try fresh(url).resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey,
+            .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey, .fileAllocatedSizeKey,
+            .totalFileAllocatedSizeKey, .fileSizeKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true else { return 0 }
+        if values.isUbiquitousItem == true, values.ubiquitousItemDownloadingStatus == .notDownloaded { return 0 }
+        guard let size = values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? values.fileSize else {
+            throw CloudVideoArchiveError.fileOperationFailed
+        }
+        return max(0, Int64(size))
+    }
+
     static func delete(id: UUID, container: URL, access: CloudSyncAccess? = nil) throws {
         try access?.check()
         // A permanent, immutable tombstone wins over late uploads from other devices.

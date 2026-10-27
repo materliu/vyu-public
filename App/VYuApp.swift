@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     @StateObject private var cloud: CloudVideoSync
     @StateObject private var library: LibraryStore
     @StateObject private var videoMetadata: VideoMetadataStore
+    @StateObject private var storage: VideoStorageOptimizer
     @StateObject private var downloadIdleTimer = DownloadIdleTimerController()
     @Environment(\.scenePhase) private var scenePhase
     #if DEBUG
@@ -44,18 +45,30 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         #endif
         let downloads = DownloadManager(rootDirectory: fixtureRoot)
         let videoMetadata = VideoMetadataStore(rootDirectory: downloads.rootDirectory)
+        var storageBudget: Int64 = 1_000_000_000
+        #if DEBUG
+        if fixtureRoot != nil, let index = arguments.firstIndex(of: "--fixture-storage-budget"),
+           arguments.count > index + 1, let bytes = Int64(arguments[index + 1]),
+           (1...1_000_000_000).contains(bytes) { storageBudget = bytes }
+        #endif
         _downloads = StateObject(wrappedValue: downloads)
         _library = StateObject(wrappedValue: LibraryStore(directory: fixtureRoot))
         _videoMetadata = StateObject(wrappedValue: videoMetadata)
-        _cloud = StateObject(wrappedValue: CloudVideoSync(downloads: downloads, metadataStore: videoMetadata,
-            containerOverride: fixtureRoot?.appendingPathComponent("FixtureCloud", isDirectory: true)))
+        let cloud = CloudVideoSync(downloads: downloads, metadataStore: videoMetadata,
+            containerOverride: fixtureRoot?.appendingPathComponent("FixtureCloud", isDirectory: true))
+        _cloud = StateObject(wrappedValue: cloud)
+        let storage = VideoStorageOptimizer(downloads: downloads, cloud: cloud, budgetBytes: storageBudget)
+        storage.setAppActive(false)
+        _storage = StateObject(wrappedValue: storage)
     }
     var body: some Scene {
         WindowGroup {
-            ContentView(browser: browser, downloads: downloads, library: library, cloud: cloud, videoMetadata: videoMetadata)
+            ContentView(browser: browser, downloads: downloads, library: library, cloud: cloud,
+                        videoMetadata: videoMetadata, storage: storage)
                 .tint(Color(red: 0.14, green: 0.37, blue: 0.27))
                 .task {
                     downloads.setAppInBackground(scenePhase == .background)
+                    storage.setAppActive(scenePhase == .active)
                     downloadIdleTimer.update(isSceneActive: scenePhase == .active,
                                              hasActiveDownloads: downloads.hasActiveDownloads)
                     try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
@@ -71,8 +84,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     }
                     #endif
                     await cloud.refreshAccount()
+                    await storage.maintain()
                 }
                 .onChange(of: scenePhase) { _, phase in
+                    storage.setAppActive(phase == .active)
                     downloadIdleTimer.update(isSceneActive: phase == .active,
                                              hasActiveDownloads: downloads.hasActiveDownloads)
                     #if DEBUG

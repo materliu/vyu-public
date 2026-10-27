@@ -1,8 +1,37 @@
 import AVFoundation
 import Combine
 import CryptoKit
+import Darwin
 import Foundation
 import WebKit
+
+/// Identity captured without reading media bytes. Directory identities also
+/// prevent a replaced Media directory from inheriting an earlier safety check.
+struct VideoCacheFileIdentity: Sendable, Equatable, Codable {
+    let url: URL
+    let byteCount: Int64
+    let modificationDate: Date
+    let fileNumber: UInt64
+    let deviceNumber: UInt64
+    fileprivate let changeSeconds: Int64
+    fileprivate let changeNanoseconds: Int64
+    fileprivate let modificationNanoseconds: Int64
+    fileprivate let rootFileNumber: UInt64
+    fileprivate let mediaFileNumber: UInt64
+    fileprivate let rootDeviceNumber: UInt64
+    fileprivate let mediaDeviceNumber: UInt64
+}
+
+/// Hooks run before the real filesystem operation, allowing deterministic
+/// storage-failure tests without substituting a successful fake deletion.
+struct VideoCacheEvictionHooks {
+    var beforeStateWrite: (() throws -> Void)?
+    var beforeFileRemoval: (() throws -> Void)?
+}
+
+enum VideoCacheEvictionError: Error {
+    case stateWriteFailed, fileRemovalFailed, recoveryRequired
+}
 
 @MainActor
 final class DownloadManager: NSObject, ObservableObject {
@@ -12,6 +41,11 @@ final class DownloadManager: NSObject, ObservableObject {
     /// Waiting for a resume slot is not an active download; these records remain paused.
     @Published private(set) var pendingResumeIDs: Set<UUID> = []
     @Published private(set) var hasActiveDownloads = false
+    @Published private(set) var localVideoUseIDs: Set<UUID> = []
+    private var localVideoUseLeases: [UUID: UUID] = [:]
+    private let cacheEvictionHooks: VideoCacheEvictionHooks
+    private let cacheRootURL: URL
+    private var cacheRecoveryRequired = false
     private static let maximumResumedDownloads = 2
     private var resumeQueue: [UUID] = []
     private var resumeDrainScheduled = false
@@ -50,6 +84,11 @@ final class DownloadManager: NSObject, ObservableObject {
         let expectations: [UUID: ValidationExpectation]
         let attempts: [UUID: String]
     }
+    private struct CacheEvictionJournal: Codable {
+        let original: DownloadRecord
+        let evicted: DownloadRecord
+        let identity: VideoCacheFileIdentity
+    }
     private static var backgroundCompletions: [String: () -> Void] = [:]
     private static var finishedBackgroundIdentifiers: Set<String> = []
 
@@ -63,10 +102,13 @@ final class DownloadManager: NSObject, ObservableObject {
         AVAssetDownloadURLSession(configuration: configuration(background: true, suffix: ".hls"), assetDownloadDelegate: delegateProxy, delegateQueue: nil)
     }()
 
-    init(rootDirectory: URL? = nil, preferPortableHLS: Bool = true) {
+    init(rootDirectory: URL? = nil, preferPortableHLS: Bool = true,
+         cacheEvictionHooks: VideoCacheEvictionHooks = VideoCacheEvictionHooks()) {
         self.preferPortableHLS = preferPortableHLS
         let root = rootDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("VYu", isDirectory: true)
         self.rootDirectory = root
+        self.cacheRootURL = root.standardizedFileURL.resolvingSymlinksInPath()
+        self.cacheEvictionHooks = cacheEvictionHooks
         thumbnailStore = VideoThumbnailStore(directory: root.appendingPathComponent("Thumbnails", isDirectory: true))
         diagnostics = DownloadDiagnostics(rootDirectory: root)
         let suffix = rootDirectory.map { String(SHA256.hash(data: Data($0.path.utf8)).map { String(format: "%02x", $0) }.joined().prefix(16)) } ?? "library"
@@ -98,6 +140,7 @@ final class DownloadManager: NSObject, ObservableObject {
                     if let data = try? Data(contentsOf: expectationURL), let stored = try? JSONDecoder().decode([UUID: ValidationExpectation].self, from: data) { expectations = stored }
                 }
             }
+            try recoverInterruptedCacheEviction()
             for index in records.indices where records[index].phase == .complete && localURL(for: records[index]) == nil {
                 records[index].phase = .failed; records[index].failure = "本机视频文件已不存在，请重新下载。"
             }
@@ -107,7 +150,9 @@ final class DownloadManager: NSObject, ObservableObject {
             storageError = "无法读取本机下载目录。请检查可用存储空间后重新打开 App。"
         }
         guard stateReadable else { return }
-        thumbnailStore.retainRecords(Set(records.filter { $0.phase == .complete && localURL(for: $0) != nil }.map(\.id)))
+        thumbnailStore.retainRecords(Set(records.filter {
+            $0.localCacheEvicted == true || ($0.phase == .complete && localURL(for: $0) != nil)
+        }.map(\.id)))
         restoringIDs = Set(records.map(\.id))
         Task { await restoreTasks() }
     }
@@ -127,6 +172,7 @@ final class DownloadManager: NSObject, ObservableObject {
         return config
     }
     private var stateURL: URL { rootDirectory.appendingPathComponent("downloads.json") }
+    private var cacheEvictionJournalURL: URL { rootDirectory.appendingPathComponent("cache-eviction.json") }
     private var modeURL: URL { rootDirectory.appendingPathComponent("transfer-modes.json") }
     private var expectationURL: URL { rootDirectory.appendingPathComponent("validation-expectations.json") }
     private var attemptURL: URL { rootDirectory.appendingPathComponent("download-attempts.json") }
@@ -622,6 +668,9 @@ final class DownloadManager: NSObject, ObservableObject {
     }
     func retry(id: UUID, cookies: [HTTPCookie]) async {
         guard let record = records.first(where: { $0.id == id }), [.failed, .cancelled].contains(record.phase) else { return }
+        // A cache eviction preserves the cloud identity; its expired source URL
+        // must not start a second network download through the Retry action.
+        guard record.localCacheEvicted != true else { return }
         if pendingCompletionWrites.contains(id), record.phase == .failed, let local = localURL(for: record) {
             // A completed transfer whose final index write failed can be
             // admitted again without discarding or downloading the file twice.
@@ -718,6 +767,191 @@ final class DownloadManager: NSObject, ObservableObject {
     func removeRecord(id: UUID) {
         removeCache(id: id); records.removeAll { $0.id == id }; authenticated.remove(id); expectations.removeValue(forKey: id); persist()
     }
+
+    func beginUsingLocalVideo(id: UUID) -> UUID {
+        let token = UUID()
+        localVideoUseLeases[token] = id
+        localVideoUseIDs.insert(id)
+        return token
+    }
+
+    func endUsingLocalVideo(_ token: UUID) {
+        guard let id = localVideoUseLeases.removeValue(forKey: token) else { return }
+        if !localVideoUseLeases.values.contains(id) { localVideoUseIDs.remove(id) }
+    }
+
+    func isLocalVideoInUse(id: UUID) -> Bool { localVideoUseIDs.contains(id) }
+
+    /// Only completed, validated, app-owned plain files qualify. System-managed
+    /// HLS packages and records participating in any unfinished operation stay.
+    func canEvictLocalCache(_ record: DownloadRecord) -> Bool {
+        let id = record.id
+        guard stateReadable, !cacheRecoveryRequired,
+              records.first(where: { $0.id == id }) == record,
+              !records.contains(where: { $0.id != id && $0.localRelativePath == record.localRelativePath }),
+              record.phase == .complete, record.localCacheEvicted != true,
+              let duration = record.duration, duration.isFinite, duration > 0,
+              record.hasAudio != nil, !localVideoUseIDs.contains(id),
+              tasks[id] == nil, browserTasks[id] == nil, portableTasks[id] == nil,
+              cloudPreparationTasks[id] == nil, cloudPreparationTokens[id] == nil,
+              preflightTasks[id] == nil, preflightTokens[id] == nil,
+              launchingResumeTokens[id] == nil, !pendingResumeIDs.contains(id),
+              !pendingPause.contains(id), !pendingCompletionWrites.contains(id),
+              !validations.contains(where: { Self.recordID($0) == id }),
+              cacheFileIdentity(for: record) != nil else { return false }
+        return true
+    }
+
+    /// This is deliberately O(1): no media hashing, decoding or directory walk.
+    func cacheFileIdentity(for record: DownloadRecord) -> VideoCacheFileIdentity? {
+        guard let name = cacheFileName(for: record) else { return nil }
+        return try? withCacheMediaDirectory { root, media, rootInfo, mediaInfo in
+            try cacheFileIdentity(name: name, root: root, media: media, rootInfo: rootInfo, mediaInfo: mediaInfo)
+        }
+    }
+
+    /// The caller must already have verified a recoverable cloud copy. The
+    /// expected identity binds that verification to the exact local bytes.
+    @discardableResult
+    func evictLocalCache(record: DownloadRecord, expectedIdentity: VideoCacheFileIdentity) throws -> Bool {
+        guard canEvictLocalCache(record), let name = cacheFileName(for: record),
+              cacheFileIdentity(for: record) == expectedIdentity,
+              let position = index(record.id) else { return false }
+        return try withCacheMediaDirectory { root, media, rootInfo, mediaInfo in
+            guard try cacheFileIdentity(name: name, root: root, media: media, rootInfo: rootInfo, mediaInfo: mediaInfo) == expectedIdentity else { return false }
+            let original = records
+            var updated = original
+            updated[position].phase = .cancelled
+            updated[position].localRelativePath = nil
+            updated[position].localCacheEvicted = true
+            updated[position].failure = nil
+            let journal = CacheEvictionJournal(original: record, evicted: updated[position], identity: expectedIdentity)
+            // Keep a protected recovery record across a crash between the state
+            // write and unlink. It contains no additional exported credentials.
+            do {
+                try JSONEncoder().encode(journal).write(to: cacheEvictionJournalURL,
+                    options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                try persistCacheState(updated)
+            } catch {
+                // No file operation has occurred. A retained journal is harmless
+                // and is reconciled against the unchanged archive on launch.
+                cacheRecoveryRequired = true
+                storageError = "无法保存缓存清理状态，本机视频已保留。"
+                throw VideoCacheEvictionError.stateWriteFailed
+            }
+            do {
+                try cacheEvictionHooks.beforeFileRemoval?()
+                // Recheck after the durable write while holding the same parent
+                // directory descriptors, then unlink that exact directory entry.
+                guard try cacheFileIdentity(name: name, root: root, media: media,
+                    rootInfo: rootInfo, mediaInfo: mediaInfo) == expectedIdentity else {
+                    throw VideoCacheEvictionError.fileRemovalFailed
+                }
+                thumbnailStore.prepareForCacheEviction(id: record.id)
+                guard unlinkat(media, name, 0) == 0 else {
+                    throw VideoCacheEvictionError.fileRemovalFailed
+                }
+            } catch {
+                do {
+                    try persistCacheState(original)
+                    try? FileManager.default.removeItem(at: cacheEvictionJournalURL)
+                    storageError = "缓存清理未完成，本机视频已保留。"
+                } catch {
+                    cacheRecoveryRequired = true
+                    storageError = "本机视频已保留，但清理状态尚未恢复。请重新打开 App 后重试。"
+                }
+                // Do not publish the evicted record when its file was retained.
+                throw VideoCacheEvictionError.fileRemovalFailed
+            }
+            records = updated
+            storageError = nil
+            try? FileManager.default.removeItem(at: cacheEvictionJournalURL)
+            return true
+        }
+    }
+
+    private func persistCacheState(_ proposed: [DownloadRecord]) throws {
+        try cacheEvictionHooks.beforeStateWrite?()
+        let archive = DownloadArchive(records: proposed, authenticated: authenticated,
+            expectations: expectations, attempts: tokens)
+        try JSONEncoder().encode(archive).write(to: stateURL,
+            options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        // Complete the file write before reclaiming the media it describes.
+        let handle = try FileHandle(forReadingFrom: stateURL)
+        defer { try? handle.close() }
+        try handle.synchronize()
+    }
+
+    private func recoverInterruptedCacheEviction() throws {
+        guard FileManager.default.fileExists(atPath: cacheEvictionJournalURL.path) else { return }
+        let journal = try JSONDecoder().decode(CacheEvictionJournal.self,
+            from: Data(contentsOf: cacheEvictionJournalURL))
+        if let position = index(journal.original.id), records[position] == journal.evicted {
+            if cacheFileIdentity(for: journal.original) == journal.identity {
+                var recovered = records
+                recovered[position] = journal.original
+                try persistCacheState(recovered)
+                records = recovered
+            } else if let name = cacheFileName(for: journal.original) {
+                // A missing file means unlink succeeded. A different file is
+                // never admitted as a validated complete video or deleted.
+                try withCacheMediaDirectory { _, media, _, _ in
+                    var info = stat()
+                    if fstatat(media, name, &info, AT_SYMLINK_NOFOLLOW) == 0 || errno != ENOENT {
+                        throw VideoCacheEvictionError.recoveryRequired
+                    }
+                }
+            } else { throw VideoCacheEvictionError.recoveryRequired }
+        }
+        try FileManager.default.removeItem(at: cacheEvictionJournalURL)
+    }
+
+    private func cacheFileName(for record: DownloadRecord) -> String? {
+        guard let relative = record.localRelativePath else { return nil }
+        let parts = relative.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0] == "Media", !parts[1].isEmpty,
+              parts[1] != ".", parts[1] != "..", !relative.contains("\0"),
+              ["mp4", "mov", "m4v"].contains((String(parts[1]) as NSString).pathExtension.lowercased()) else { return nil }
+        return String(parts[1])
+    }
+
+    private func withCacheMediaDirectory<T>(_ operation: (Int32, Int32, stat, stat) throws -> T) throws -> T {
+        // Resolve system aliases outside the owned root once, then reject a
+        // changed root or any alias at the root/Media boundary.
+        guard rootDirectory.standardizedFileURL.resolvingSymlinksInPath() == cacheRootURL,
+              (try FileManager.default.attributesOfItem(atPath: rootDirectory.path)[.type] as? FileAttributeType) == .typeDirectory else {
+            throw VideoCacheEvictionError.fileRemovalFailed
+        }
+        let root = open(cacheRootURL.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard root >= 0 else { throw VideoCacheEvictionError.fileRemovalFailed }
+        defer { close(root) }
+        let media = openat(root, "Media", O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard media >= 0 else { throw VideoCacheEvictionError.fileRemovalFailed }
+        defer { close(media) }
+        var rootInfo = stat(), mediaInfo = stat()
+        guard fstat(root, &rootInfo) == 0, fstat(media, &mediaInfo) == 0 else {
+            throw VideoCacheEvictionError.fileRemovalFailed
+        }
+        return try operation(root, media, rootInfo, mediaInfo)
+    }
+
+    private func cacheFileIdentity(name: String, root: Int32, media: Int32,
+                                   rootInfo: stat, mediaInfo: stat) throws -> VideoCacheFileIdentity {
+        var info = stat()
+        guard fstatat(media, name, &info, AT_SYMLINK_NOFOLLOW) == 0,
+              info.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG), info.st_size > 0 else {
+            throw VideoCacheEvictionError.fileRemovalFailed
+        }
+        return VideoCacheFileIdentity(url: rootDirectory.appendingPathComponent("Media/" + name).standardizedFileURL,
+            byteCount: Int64(info.st_size),
+            modificationDate: Date(timeIntervalSince1970: Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1_000_000_000),
+            fileNumber: UInt64(info.st_ino), deviceNumber: UInt64(UInt32(bitPattern: info.st_dev)),
+            changeSeconds: Int64(info.st_ctimespec.tv_sec), changeNanoseconds: Int64(info.st_ctimespec.tv_nsec),
+            modificationNanoseconds: Int64(info.st_mtimespec.tv_nsec), rootFileNumber: UInt64(rootInfo.st_ino),
+            mediaFileNumber: UInt64(mediaInfo.st_ino), rootDeviceNumber: UInt64(UInt32(bitPattern: rootInfo.st_dev)),
+            mediaDeviceNumber: UInt64(UInt32(bitPattern: mediaInfo.st_dev)))
+    }
+
     func localURL(for record: DownloadRecord) -> URL? {
         guard let relative = record.localRelativePath else { return nil }
         let url: URL, base: URL
