@@ -8,9 +8,19 @@ struct VideoMetadata: Identifiable, Codable, Equatable, Sendable {
     var updatedAt: Date
     var revision: UUID
     var coverFrameSeconds: Double? = nil
+    var customTitle: String? = nil
 
     static let maximumTags = 20
     static let maximumTagLength = 30
+    // Match the existing title byte budget without truncating a user's name.
+    static let maximumTitleBytes = 4_096
+
+    static func normalizedTitle(_ input: String) throws -> String {
+        let title = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { throw VideoMetadataError.emptyTitle }
+        guard title.utf8.count <= maximumTitleBytes else { throw VideoMetadataError.titleTooLong }
+        return title
+    }
 
     static func normalizedTags(_ tags: [String]) throws -> [String] {
         var result: [String] = []
@@ -42,6 +52,9 @@ struct VideoMetadata: Identifiable, Codable, Equatable, Sendable {
         if let coverFrameSeconds {
             guard coverFrameSeconds.isFinite, coverFrameSeconds >= 0 else { throw VideoMetadataError.invalidMetadata }
         }
+        if let customTitle {
+            guard customTitle == (try Self.normalizedTitle(customTitle)) else { throw VideoMetadataError.invalidMetadata }
+        }
     }
 
     func isNewer(than other: VideoMetadata) -> Bool {
@@ -55,6 +68,8 @@ struct VideoMetadata: Identifiable, Codable, Equatable, Sendable {
 }
 
 enum VideoMetadataError: LocalizedError, Equatable {
+    case emptyTitle
+    case titleTooLong
     case invalidTag
     case tagTooLong
     case tooManyTags
@@ -64,12 +79,14 @@ enum VideoMetadataError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
+        case .emptyTitle: return "名称不能为空"
+        case .titleTooLong: return "名称过长，请缩短后重试"
         case .invalidTag: return "标签不能包含换行或控制字符"
         case .tagTooLong: return "每个标签最多 30 个字"
         case .tooManyTags: return "每个视频最多添加 20 个标签"
         case .invalidMetadata: return "视频资料无效"
-        case .unreadableStore: return "无法读取已保存的收藏和标签，请稍后重试"
-        case .archiveTooLarge: return "收藏和标签资料过大，无法保存"
+        case .unreadableStore: return "无法读取已保存的视频资料，请稍后重试"
+        case .archiveTooLarge: return "视频资料过大，无法保存"
         }
     }
 }
@@ -126,10 +143,25 @@ enum VideoMetadataError: LocalizedError, Equatable {
     func tags(for id: UUID) -> [String] { entries[id]?.tags ?? [] }
     func coverFrameSeconds(for id: UUID) -> Double? { entries[id]?.coverFrameSeconds }
 
+    func displayTitle(for id: UUID, fallback: String) -> String {
+        if let title = entries[id]?.customTitle { return title }
+        let title = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? "视频" : title
+    }
+
+    func rename(_ title: String, for id: UUID, fallback: String) throws {
+        guard stateReadable else { throw VideoMetadataError.unreadableStore }
+        let normalized = try VideoMetadata.normalizedTitle(title)
+        guard normalized != displayTitle(for: id, fallback: fallback) else { return }
+        let existing = entries[id]
+        try update(id: id, isFavorite: existing?.isFavorite ?? false, tags: existing?.tags ?? [],
+            coverFrameSeconds: existing?.coverFrameSeconds, customTitle: normalized)
+    }
+
     func toggleFavorite(_ id: UUID) throws {
         let existing = entries[id]
         try update(id: id, isFavorite: !(existing?.isFavorite ?? false), tags: existing?.tags ?? [],
-            coverFrameSeconds: existing?.coverFrameSeconds)
+            coverFrameSeconds: existing?.coverFrameSeconds, customTitle: existing?.customTitle)
     }
 
     func setTags(_ tags: [String], for id: UUID) throws {
@@ -138,7 +170,7 @@ enum VideoMetadataError: LocalizedError, Equatable {
         let existing = entries[id]
         guard normalized != (existing?.tags ?? []) else { return }
         try update(id: id, isFavorite: existing?.isFavorite ?? false, tags: normalized,
-            coverFrameSeconds: existing?.coverFrameSeconds)
+            coverFrameSeconds: existing?.coverFrameSeconds, customTitle: existing?.customTitle)
     }
 
     func setCoverFrameSeconds(_ seconds: Double?, for id: UUID) throws {
@@ -149,7 +181,7 @@ enum VideoMetadataError: LocalizedError, Equatable {
         let existing = entries[id]
         guard seconds != existing?.coverFrameSeconds else { return }
         try update(id: id, isFavorite: existing?.isFavorite ?? false, tags: existing?.tags ?? [],
-            coverFrameSeconds: seconds)
+            coverFrameSeconds: seconds, customTitle: existing?.customTitle)
     }
 
     func merge(_ incoming: [UUID: VideoMetadata]) throws {
@@ -179,7 +211,7 @@ enum VideoMetadataError: LocalizedError, Equatable {
         entries = proposed
     }
 
-    private func update(id: UUID, isFavorite: Bool, tags: [String], coverFrameSeconds: Double?) throws {
+    private func update(id: UUID, isFavorite: Bool, tags: [String], coverFrameSeconds: Double?, customTitle: String?) throws {
         guard stateReadable else { throw VideoMetadataError.unreadableStore }
         // Millisecond timestamps survive the cloud sidecar's JSON date format.
         // Advance beyond the last revision even if this device's clock moved back.
@@ -187,7 +219,7 @@ enum VideoMetadataError: LocalizedError, Equatable {
         let priorMilliseconds = entries[id].map { ceil($0.updatedAt.timeIntervalSince1970 * 1_000) + 1 } ?? 0
         let updatedAt = Date(timeIntervalSince1970: max(currentMilliseconds, priorMilliseconds) / 1_000)
         let entry = VideoMetadata(id: id, isFavorite: isFavorite, tags: tags, updatedAt: updatedAt,
-            revision: UUID(), coverFrameSeconds: coverFrameSeconds)
+            revision: UUID(), coverFrameSeconds: coverFrameSeconds, customTitle: customTitle)
         try entry.validate()
         var proposed = entries
         proposed[id] = entry

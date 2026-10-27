@@ -43,6 +43,11 @@ private struct VideoTagPresentation: Identifiable {
     let title: String
 }
 
+private struct VideoNamePresentation: Identifiable {
+    let id: UUID
+    let originalTitle: String
+}
+
 private struct VideoCoverPresentation: Identifiable {
     let id: UUID
     let title: String
@@ -71,6 +76,7 @@ struct ContentView: View {
     @State private var offlineQuery = ""
     @State private var onlyFavoriteVideos = false
     @State private var tagPresentation: VideoTagPresentation?
+    @State private var namePresentation: VideoNamePresentation?
     @State private var coverPresentation: VideoCoverPresentation?
     @State private var metadataError: String?
     @State private var offlineSelection = OfflineSelection()
@@ -85,6 +91,10 @@ struct ContentView: View {
         .sheet(isPresented: $showVideoImport) { LocalVideoImportSheet(downloads: downloads) }
         .sheet(item: $tagPresentation) { presentation in
             VideoTagEditorSheet(videoID: presentation.id, title: presentation.title, videoMetadata: videoMetadata)
+        }
+        .sheet(item: $namePresentation) { presentation in
+            VideoNameEditorSheet(videoID: presentation.id, originalTitle: presentation.originalTitle,
+                                 videoMetadata: videoMetadata)
         }
         .sheet(item: $coverPresentation) { presentation in
             VideoCoverPickerSheet(videoID: presentation.id, title: presentation.title, localURL: presentation.localURL,
@@ -465,7 +475,8 @@ struct ContentView: View {
     private var filteredOfflineItems: [OfflineVideoItem] {
         offlineItems.filter { item in
             (!onlyFavoriteVideos || videoMetadata.isFavorite(item.id)) &&
-                VideoMetadataSearch.matches(title: item.title, tags: videoMetadata.tags(for: item.id), query: offlineQuery)
+                VideoMetadataSearch.matches(title: videoMetadata.displayTitle(for: item.id, fallback: item.title),
+                                            tags: videoMetadata.tags(for: item.id), query: offlineQuery)
         }
     }
 
@@ -542,7 +553,7 @@ struct ContentView: View {
         }.buttonStyle(.plain)
             .accessibilityElement(children: .ignore)
             .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(record.candidate.title.isEmpty ? "视频" : record.candidate.title)
+            .accessibilityLabel(videoMetadata.displayTitle(for: record.id, fallback: record.candidate.title))
             .accessibilityValue("\(selected ? "已选择" : "未选择") · \(status(record))")
             .accessibilityHint("轻点\(selected ? "取消选择" : "选择")")
             .accessibilityIdentifier("offlineTaskSelection-\(record.id.uuidString)")
@@ -590,7 +601,7 @@ struct ContentView: View {
             if videoMetadata.isFavorite(id) {
                 Image(systemName: "heart.fill").font(.caption).foregroundStyle(.pink).accessibilityHidden(true)
             }
-            Text(title.isEmpty ? "视频" : title).font(.headline).foregroundStyle(.primary)
+            Text(videoMetadata.displayTitle(for: id, fallback: title)).font(.headline).foregroundStyle(.primary)
                 .lineLimit(2).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -607,12 +618,15 @@ struct ContentView: View {
     }
 
     @ViewBuilder private func videoOrganizationActions(id: UUID, title: String) -> some View {
+        Button("重命名", systemImage: "pencil") {
+            namePresentation = VideoNamePresentation(id: id, originalTitle: title)
+        }.accessibilityIdentifier("renameVideo")
         Button(videoMetadata.isFavorite(id) ? "取消收藏" : "收藏视频",
                systemImage: videoMetadata.isFavorite(id) ? "heart.slash" : "heart") {
             toggleVideoFavorite(id)
         }.accessibilityIdentifier("toggleVideoFavorite")
         Button("编辑标签", systemImage: "tag") {
-            tagPresentation = VideoTagPresentation(id: id, title: title.isEmpty ? "视频" : title)
+            tagPresentation = VideoTagPresentation(id: id, title: videoMetadata.displayTitle(for: id, fallback: title))
         }.accessibilityIdentifier("editVideoTags")
     }
 
@@ -646,7 +660,7 @@ struct ContentView: View {
                 cloudSummary(entry).padding(.trailing, 44).padding(.vertical, 10).contentShape(Rectangle())
             }.buttonStyle(.plain).disabled(!cloud.isAvailable)
                 .accessibilityIdentifier("cloudVideoRow")
-                .accessibilityLabel(entry.manifest.title.isEmpty ? "视频" : entry.manifest.title)
+                .accessibilityLabel(videoMetadata.displayTitle(for: entry.id, fallback: entry.manifest.title))
                 .accessibilityValue((["iCloud 视频", videoMetadataAccessibility(entry.id)].filter { !$0.isEmpty }).joined(separator: " · "))
                 .accessibilityHint("从 iCloud 下载并播放")
             Menu {
@@ -694,7 +708,7 @@ struct ContentView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(record.candidate.title.isEmpty ? "视频" : record.candidate.title)
+                .accessibilityLabel(videoMetadata.displayTitle(for: record.id, fallback: record.candidate.title))
                 .accessibilityValue(([sourceLabel(record), status(record), videoMetadataAccessibility(record.id)].filter { !$0.isEmpty }).joined(separator: " · "))
                 .accessibilityHint("播放本机视频")
                 .accessibilityIdentifier("offlineVideoRow")
@@ -733,7 +747,7 @@ struct ContentView: View {
                 if record.phase == .complete, let localURL = downloads.localURL(for: record), localURL.isFileURL {
                     Button("选择封面", systemImage: "photo") {
                         coverPresentation = VideoCoverPresentation(id: record.id,
-                            title: record.candidate.title.isEmpty ? "视频" : record.candidate.title, localURL: localURL)
+                            title: videoMetadata.displayTitle(for: record.id, fallback: record.candidate.title), localURL: localURL)
                     }.accessibilityIdentifier("chooseVideoCover")
                 }
                 Divider()

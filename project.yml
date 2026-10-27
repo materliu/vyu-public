@@ -45,7 +45,7 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
         MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "15"
+        CURRENT_PROJECT_VERSION: "16"
   VYuTests:
     type: bundle.unit-test
     platform: iOS
