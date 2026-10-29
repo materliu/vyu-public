@@ -12,6 +12,7 @@
 		068024431CA426ADF470661C /* LocalVideoImportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4518C06D7805E1B5BB43F4B /* LocalVideoImportTests.swift */; };
 		06CC4E4EA2FADEBF67213B97 /* VideoRenameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44BE94C7B7B26FC86A83DCC5 /* VideoRenameTests.swift */; };
 		0A8A7C48B88DF6F74C1B3F4F /* VideoStorageUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F654087194C9A22F0331E52 /* VideoStorageUITests.swift */; };
+		0B4D66985405460A070499E1 /* DownloadStorageSchedulingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411A840E0C8E4E9D52F41357 /* DownloadStorageSchedulingTests.swift */; };
 		0CC0F81E725C0B993A3C239E /* LiveWebDownloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8AC5AB7E3384B800F1DCD40 /* LiveWebDownloadTests.swift */; };
 		0E6BC20DBAEE7036F3770905 /* DownloadProgressPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CC1E7133A5B84AA24244893 /* DownloadProgressPresentation.swift */; };
 		0FDB49850CD2D5AA56E3A54D /* BrowserPopupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BAB7A59D9EE536E8FCC170C /* BrowserPopupSheet.swift */; };
@@ -68,6 +69,7 @@
 		AD855B062EE1A0B4F23F3F72 /* VideoStorageOptimizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9E0060A8C27F7B3D0518230 /* VideoStorageOptimizer.swift */; };
 		B24A426BDB312A4F9E7BA50F /* DownloadIdleTimerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 009B07E476229C9692498AC6 /* DownloadIdleTimerTests.swift */; };
 		B6E155D55267600C4B92FC63 /* VYuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A06F067018E8A1504EFF5AF /* VYuUITests.swift */; };
+		B72E1B163D2BA0EAA0C765BE /* BackgroundHLSStartupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2EB5CE9240BF22B533E8E86 /* BackgroundHLSStartupTests.swift */; };
 		B9038C4D639329010F765A9D /* DownloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0600BDC3E6980A574E8AF2E7 /* DownloadTests.swift */; };
 		BA18DCC8FB490A6539D29DF0 /* HLSFileExporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 954D4988D56E58B996AC3C8F /* HLSFileExporterTests.swift */; };
 		C7D5E47C636A8E5E993967C0 /* DownloadProgressPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E979DDA1B53DD2A493ECA798 /* DownloadProgressPresentationTests.swift */; };
@@ -95,6 +97,7 @@
 		F82046B4E53FC03D8C1EFCC0 /* LocalVideoCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92FEF9FF6636BA1E05F2DBF9 /* LocalVideoCacheTests.swift */; };
 		F822414A86590F8D588E3C26 /* OfflineBatchUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09C3E211CAFA418FA6C7FBCA /* OfflineBatchUITests.swift */; };
 		F8A7687797EFD21085777075 /* DownloadDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F473C9C2BC72D3E04DD8DED5 /* DownloadDiagnosticsTests.swift */; };
+		FA61AD7BE5CBA3259AB62436 /* DownloadStartupUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCEDFCFFEA01C30D0D86CAEE /* DownloadStartupUITests.swift */; };
 		FEA4FCF63C4CBE4A255D16F8 /* DiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5443A775CAA69622AE3735A4 /* DiscoveryTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -143,6 +146,7 @@
 		38BBC10DA1BBEE4CBA0DF0A1 /* HLSDownloadRelayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HLSDownloadRelayTests.swift; sourceTree = "<group>"; };
 		3A877683D4A338CB33D91CCC /* CloudVideoCacheEvictionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVideoCacheEvictionTests.swift; sourceTree = "<group>"; };
 		40EEE55CEC1F1B80F07A776B /* PortableDownloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortableDownloadTests.swift; sourceTree = "<group>"; };
+		411A840E0C8E4E9D52F41357 /* DownloadStorageSchedulingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadStorageSchedulingTests.swift; sourceTree = "<group>"; };
 		41940058810518463A3431C6 /* BrowserModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserModel.swift; sourceTree = "<group>"; };
 		424F6AFED699028A1DEF996E /* BrowserPopup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPopup.swift; sourceTree = "<group>"; };
 		44BE94C7B7B26FC86A83DCC5 /* VideoRenameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRenameTests.swift; sourceTree = "<group>"; };
@@ -202,6 +206,7 @@
 		CF9DF486A80B9B0C2B907CE7 /* BrowserPopupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPopupTests.swift; sourceTree = "<group>"; };
 		D050B82CB6FA5107E7ABA4A0 /* BackgroundHLSStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundHLSStore.swift; sourceTree = "<group>"; };
 		D30675BF7688FA661C65DBE0 /* VYuApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VYuApp.swift; sourceTree = "<group>"; };
+		DCEDFCFFEA01C30D0D86CAEE /* DownloadStartupUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadStartupUITests.swift; sourceTree = "<group>"; };
 		DFB494976C80F71346732612 /* VYuTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = VYuTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DFFEA5C1937133EBD30D42E6 /* VideoMetadataStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoMetadataStoreTests.swift; sourceTree = "<group>"; };
 		E8AC5AB7E3384B800F1DCD40 /* LiveWebDownloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveWebDownloadTests.swift; sourceTree = "<group>"; };
@@ -210,6 +215,7 @@
 		E9E0060A8C27F7B3D0518230 /* VideoStorageOptimizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoStorageOptimizer.swift; sourceTree = "<group>"; };
 		EDBB3A2E34620B387249B59E /* StreamingIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingIntegrationTests.swift; sourceTree = "<group>"; };
 		EE9FFD01CDDA423D11EAF27A /* LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStore.swift; sourceTree = "<group>"; };
+		F2EB5CE9240BF22B533E8E86 /* BackgroundHLSStartupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundHLSStartupTests.swift; sourceTree = "<group>"; };
 		F473C9C2BC72D3E04DD8DED5 /* DownloadDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadDiagnosticsTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -278,6 +284,7 @@
 			isa = PBXGroup;
 			children = (
 				11D1399F82CC356B2EED8D72 /* BrowserPopupUITests.swift */,
+				DCEDFCFFEA01C30D0D86CAEE /* DownloadStartupUITests.swift */,
 				1CA16A0A1073CF95058862B5 /* HistoryUITests.swift */,
 				7AF87EBEE296EDBED49F2AAC /* LocalVideoImportUITests.swift */,
 				90729891ECB85E6496C2CF9F /* NavigationUITests.swift */,
@@ -330,6 +337,7 @@
 		A5C235F6A82B7B67B3847B31 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				F2EB5CE9240BF22B533E8E86 /* BackgroundHLSStartupTests.swift */,
 				B567F436DB19834E3ABAF5EE /* BrowserNavigationTests.swift */,
 				CF9DF486A80B9B0C2B907CE7 /* BrowserPopupTests.swift */,
 				B53C627AE7B145A473B48C01 /* BrowserSignInPrivacyTests.swift */,
@@ -344,6 +352,7 @@
 				F473C9C2BC72D3E04DD8DED5 /* DownloadDiagnosticsTests.swift */,
 				009B07E476229C9692498AC6 /* DownloadIdleTimerTests.swift */,
 				E979DDA1B53DD2A493ECA798 /* DownloadProgressPresentationTests.swift */,
+				411A840E0C8E4E9D52F41357 /* DownloadStorageSchedulingTests.swift */,
 				0600BDC3E6980A574E8AF2E7 /* DownloadTests.swift */,
 				55A563378CD4F54D655714A8 /* HistoryNavigationTests.swift */,
 				46B455233997CDDE5D366C7E /* HLSCompatibilityIntegrationTests.swift */,
@@ -529,6 +538,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B72E1B163D2BA0EAA0C765BE /* BackgroundHLSStartupTests.swift in Sources */,
 				3AFFAB1F1734BF7FD490BCB3 /* BrowserNavigationTests.swift in Sources */,
 				6CE0EAB394D2BD128B8A0BF0 /* BrowserPopupTests.swift in Sources */,
 				F0084F63FB43FB5F6045B995 /* BrowserSignInPrivacyTests.swift in Sources */,
@@ -543,6 +553,7 @@
 				F8A7687797EFD21085777075 /* DownloadDiagnosticsTests.swift in Sources */,
 				B24A426BDB312A4F9E7BA50F /* DownloadIdleTimerTests.swift in Sources */,
 				C7D5E47C636A8E5E993967C0 /* DownloadProgressPresentationTests.swift in Sources */,
+				0B4D66985405460A070499E1 /* DownloadStorageSchedulingTests.swift in Sources */,
 				B9038C4D639329010F765A9D /* DownloadTests.swift in Sources */,
 				91D48102DA7388AA67CDE656 /* HLSCompatibilityIntegrationTests.swift in Sources */,
 				9408CEA09DE255F7682EECB5 /* HLSDownloadRelayNetworkTests.swift in Sources */,
@@ -578,6 +589,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				56EF4C2AD9D1F309B5DDE9FF /* BrowserPopupUITests.swift in Sources */,
+				FA61AD7BE5CBA3259AB62436 /* DownloadStartupUITests.swift in Sources */,
 				4288FD84DFB22A35E92E2F1E /* HistoryUITests.swift in Sources */,
 				CF237F6C4420BFB93FE4FC83 /* LocalVideoImportUITests.swift in Sources */,
 				DC6BA933E8CD551A420E3B62 /* NavigationUITests.swift in Sources */,
@@ -757,7 +769,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "$(VYU_SIGNING_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -854,7 +866,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "$(VYU_SIGNING_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

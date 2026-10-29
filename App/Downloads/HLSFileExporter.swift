@@ -80,6 +80,7 @@ struct HLSFileDownloadPlan: Codable {
     let video: HLSFilePlaylist
     let audio: HLSFilePlaylist?
     let requiresAudio: Bool
+    var resourceCount: Int { 1 + video.segments.count + (audio.map { 1 + $0.segments.count } ?? 0) }
     var resources: [HLSFilePlaylist.Resource] {
         [video.initialization] + video.segments.map(\.resource) + (audio.map { [$0.initialization] + $0.segments.map(\.resource) } ?? [])
     }

@@ -14,6 +14,18 @@ import Foundation
     let budgetBytes: Int64
     var localBytes: Int64 { Self.add(localVideoBytes, cloudCacheBytes) }
 
+    /// Transfer byte/progress updates do not change the set of cache files.
+    /// Keep phase/path changes observable, including validation and eviction.
+    private struct StorageRecord: Equatable {
+        let id: UUID
+        let phase: DownloadPhase
+        let path: String?
+        let evicted: Bool
+        init(_ record: DownloadRecord) {
+            id = record.id; phase = record.phase; path = record.localRelativePath
+            evicted = record.localCacheEvicted == true
+        }
+    }
     private struct State: Codable {
         var schemaVersion = 1
         var isEnabled = false
@@ -69,7 +81,8 @@ import Foundation
             if self.automaticallyMaintain { self.requestMaintenance() }
         }.store(in: &subscriptions)
         if automaticallyMaintain {
-            downloads.$records.dropFirst().sink { [weak self] _ in self?.requestMaintenance() }.store(in: &subscriptions)
+            downloads.$records.map { $0.map(StorageRecord.init) }.removeDuplicates().dropFirst()
+                .sink { [weak self] _ in self?.requestMaintenance() }.store(in: &subscriptions)
             downloads.$localVideoUseIDs.dropFirst().sink { [weak self] _ in self?.requestMaintenance() }.store(in: &subscriptions)
             cloud.$entries.dropFirst().removeDuplicates().sink { [weak self] _ in self?.requestMaintenance() }.store(in: &subscriptions)
             cloud.$operations.dropFirst().removeDuplicates().sink { [weak self] _ in self?.requestMaintenance() }.store(in: &subscriptions)

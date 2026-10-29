@@ -819,6 +819,7 @@ final class DownloadManager: NSObject, ObservableObject {
             pauseForegroundHLSDownloads()
             for task in cloudPreparationTasks.values { task.cancel() }
         } else {
+            backgroundHLS?.resumeScheduling()
             for job in backgroundHLS?.jobs.values.map({ $0 }) ?? [] where job.ready { backgroundHLSChanged(job) }
         }
         activityDidChange()
