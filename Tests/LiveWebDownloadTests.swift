@@ -352,6 +352,64 @@ import WebKit
         XCTAssertEqual(browser.candidates.first { $0.url.query == "plain-card=generic-neighbor" }?.title, "中性卡片页面")
     }
 
+    func testMixedInlineCaptionExcludesLinksMetadataHiddenAndOversizedText() async throws {
+        let browser = mountBrowser()
+        browser.open(base.absoluteString)
+        try await waitUntil("mixed caption fixture committed") { browser.hasCurrentDocument && !browser.isLoading }
+        _ = try await browser.webView.callAsyncJavaScript("""
+            document.title = '混排标题回退'; document.body.innerHTML = html;
+            window.__vyuRescan(); return true;
+            """, arguments: ["html": """
+            <article><header><a rel="author">示例作者</a><time>7 小时前</time></header>
+              <p>清晨 <strong>花园</strong> 观察<br><a href="/fixture-tag" rel="tag">自然</a> (source.example)</p>
+              <video preload="none" src="/media/direct.mp4?mixed=caption"></video></article>
+            <article><div><a rel="author">示例作者</a><time>7 小时前</time></div>
+              <div style="display:none">隐藏的标题</div><p><a rel="tag">自然</a> (source.example)</p>
+              <div><video preload="none" src="/media/direct.mp4?mixed=empty"></video></div></article>
+            <article><p>\(String(repeating: "很长的正文", count: 100))<br><a rel="tag">自然</a> (source.example)</p>
+              <video preload="none" src="/media/direct.mp4?mixed=long"></video></article>
+            <article><div><video preload="none" src="/media/direct.mp4?mixed=after"></video>播放器之后的无关文字</div></article>
+            """], in: nil, contentWorld: .page)
+        try await waitUntil("mixed caption sources discovered") {
+            browser.candidates.filter { $0.url.query?.hasPrefix("mixed=") == true }.count == 4
+        }
+        XCTAssertEqual(browser.candidates.first { $0.url.query == "mixed=caption" }?.title, "清晨 花园 观察")
+        for suffix in ["empty", "long", "after"] {
+            XCTAssertEqual(browser.candidates.first { $0.url.query == "mixed=\(suffix)" }?.title, "混排标题回退")
+        }
+    }
+
+    func testLooseInlineCardTitleSurvivesMP4AndHLSDownloadsAndPersistence() async throws {
+        let browser = mountBrowser()
+        for (route, kind) in [("video-card-inline-mp4", MediaKind.file), ("video-card-inline-hls", MediaKind.hls)] {
+            browser.open(base.appendingPathComponent(route).absoluteString)
+            try await waitUntil("inline card discovered") {
+                !browser.isLoading && browser.candidates.contains { $0.pageURL.lastPathComponent == route && $0.kind == kind }
+            }
+            let candidate = try XCTUnwrap(browser.candidates.first { $0.kind == kind })
+            XCTAssertEqual(candidate.title, "林间 散步 的记录")
+            let preparedValue = await browser.prepareForDownload(candidate)
+            let prepared = try XCTUnwrap(preparedValue)
+            XCTAssertEqual(prepared.title, candidate.title)
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("VYu-inline-title-" + UUID().uuidString)
+            let manager = DownloadManager(rootDirectory: root)
+            defer {
+                for record in manager.records { manager.removeRecord(id: record.id) }
+                try? FileManager.default.removeItem(at: root)
+            }
+            await manager.start(candidate: prepared, cookies: [])
+            try await waitUntil("inline title download validated", timeout: 60) {
+                manager.records.first?.phase == .complete || manager.records.first?.phase == .failed
+            }
+            let record = try XCTUnwrap(manager.records.first)
+            XCTAssertEqual(record.phase, .complete, record.failure ?? "")
+            XCTAssertEqual(record.candidate.title, "林间 散步 的记录")
+            XCTAssertNotNil(manager.localURL(for: record))
+            let restored = DownloadManager(rootDirectory: root)
+            XCTAssertEqual(restored.records.first?.candidate.title, "林间 散步 的记录")
+        }
+    }
+
     func testPlainCardTitleUsesOwningIframeAndSurvivesPreparationAndPersistence() async throws {
         let browser = mountBrowser()
         browser.open(base.appendingPathComponent("video-card-title-frame").absoluteString)

@@ -26,6 +26,7 @@ python3 fixtures/server.py
 | `/dynamic` | 延迟 1 秒插入 `video > source` | DOM 变化与动态媒体 |
 | `/multiple-videos` | 第一个 `/forbidden.mp4`；第二个 `/media/direct.mp4?second=1` | 每个播放器旁的独立下载入口，选择第二个时不能误下第一个 |
 | `/video-card-titles` | 两张独立卡片中的合成 MP4 | 普通文本标题归属、作者/时间/标签排除、动态更新、点击第二个视频与重启后列表标题 |
+| `/video-card-inline-mp4`、`/video-card-inline-hls` | 合成 MP4、独立音轨 HLS | 标题、标签、来源链接和播放器混排；点击下载后核对离线标题与重启保留 |
 | `/video-card-title-frame` | iframe 内的 `/video-card-title-inner` | 使用播放器所属 frame 的卡片标题，准备请求和持久化后不变 |
 | `/video-card-title-hls` | 被拒绝的 HLS 与明确匹配的 MP4 | 失败处理页、下载确认和 MP4 备选沿用所选卡片标题 |
 | `/head-denied` | `/head-denied.mp4` | HEAD 返回 403；GET 和 Range 返回有效 MP4，不能把预检失败当成下载被拒绝 |

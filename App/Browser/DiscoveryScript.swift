@@ -83,13 +83,13 @@ enum DiscoveryScript {
             }
             return false;
           }
-          function excludedTitleElement(element, context, plain = false) {
+          function excludedTitleElement(element, context, plain = false, inlineLinks = false) {
             for (let ancestor = element, depth = 0; ancestor && depth < 6; depth++, ancestor = ancestor.parentElement) {
               if (metadataRole(ancestor)) return true;
               if (ancestor !== element && (ancestor === document.body || ancestor === document.documentElement ||
                   ancestor.tagName === 'MAIN' || localCard(ancestor) || boundedVideoCount(ancestor, context) !== 0)) break;
               if (ancestor.hidden || ancestor.getAttribute('aria-hidden') === 'true') return true;
-              if (hasDirectMetadata(ancestor, plain && !titleHint(ancestor))) return true;
+              if (hasDirectMetadata(ancestor, plain && !titleHint(ancestor) && !inlineLinks)) return true;
             }
             return false;
           }
@@ -97,8 +97,43 @@ enum DiscoveryScript {
             const title = contentTitle(value);
             if (!title || /^[\d\s.,:;!?+\-–—()（）/|·•]+$/.test(title) ||
                 /^(?:[#@]\S+\s*)+$/.test(title) || /^(?:https?:\/\/|www\.)\S+$/i.test(title) ||
+                /^[（(]?\s*(?:[a-z0-9-]+\.)+[a-z]{2,}\s*[）)]?$/i.test(title) ||
                 /^(?:\d+\s*(?:秒|分钟|小时|天|周|个月|年)前|\d+\s*(?:s|m|h|d|seconds?|minutes?|hours?|days?|weeks?|months?|years?)(?:\s+ago)?)$/i.test(title)) return '';
             return title;
+          }
+          function inlineTitle(element, context) {
+            if (!element || !element.matches('div,p,span') || element.closest('a') ||
+                excludedTitleElement(element, context, true, true) ||
+                getComputedStyle(element).display === 'none' || getComputedStyle(element).visibility === 'hidden') return '';
+            // Some cards put a bare caption, tags and the player in one div.
+            // Read only its inline text runs; never flatten the whole card.
+            let text = '', result = '', visited = 0, exceeded = false;
+            function finish() {
+              const value = text.replace(/\s+/g, ' ').trim();
+              if (!result && value.length <= 240) result = plainTitle(value);
+              text = '';
+            }
+            function read(parent, depth) {
+              for (let node = parent.firstChild; node; node = node.nextSibling) {
+                if (++visited > titleNodeBudget || depth > 6) { exceeded = true; return; }
+                if (node.nodeType === Node.TEXT_NODE) {
+                  // Keep an oversized run invalid without accumulating its body.
+                  if (text.length <= 1600) text += ' ' + node.data.slice(0, 1600);
+                  continue;
+                }
+                if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                if (boundedVideoCount(node, context) !== 0) { finish(); return; }
+                if (!node.matches('span,em,strong,b,i,u,s,small,mark,sub,sup') || metadataRole(node) ||
+                    node.hidden || node.getAttribute('aria-hidden') === 'true' ||
+                    getComputedStyle(node).display === 'none' || getComputedStyle(node).visibility === 'hidden') {
+                  finish(); continue;
+                }
+                read(node, depth + 1);
+                if (exceeded) return;
+              }
+            }
+            read(element, 0); finish();
+            return exceeded ? '' : result;
           }
           function boundedVideoCount(element, context) {
             if (!element) return 0;
@@ -232,6 +267,8 @@ enum DiscoveryScript {
               const preceding = nodes.filter(node => node.compareDocumentPosition(video) & Node.DOCUMENT_POSITION_FOLLOWING).reverse();
               const following = nodes.filter(node => !(node.compareDocumentPosition(video) & Node.DOCUMENT_POSITION_FOLLOWING));
               for (const node of [...preceding, ...following]) { const text = titleText(node, false, context); if (text) return text; }
+              const inline = inlineTitle(parent, context);
+              if (inline) return inline;
               // Plain card titles are often div/span text separated from the
               // player by a tag/source row. Search only before this player and
               // within its single-video container; never borrow a later card.
@@ -243,7 +280,7 @@ enum DiscoveryScript {
                 const block = plainTextBlock(node, parent, context);
                 if (checkedBlocks.has(block)) continue;
                 checkedBlocks.add(block);
-                const text = titleText(block, false, context);
+                const text = titleText(block, false, context) || inlineTitle(block, context);
                 if (text) return text;
               }
               if (localCard(parent)) break;

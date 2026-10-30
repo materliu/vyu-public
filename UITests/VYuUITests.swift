@@ -173,6 +173,33 @@ final class VYuUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["offlinePlaybackLabel"].waitForExistence(timeout: 10))
     }
 
+    func testLooseInlineTitleReachesOfflineListForMP4AndHLSAfterRelaunch() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        for format in ["mp4", "hls"] {
+            let fixtureID = UUID().uuidString
+            app.launchArguments = ["--fixture-cloud-sync", fixtureID,
+                                   "--fixture-url", "http://127.0.0.1:8765/video-card-inline-" + format]
+            app.launch()
+            let inline = app.webViews.buttons["下载此视频"]
+            XCTAssertTrue(inline.waitForExistence(timeout: 20))
+            for _ in 0..<4 where !inline.isHittable { app.webViews.firstMatch.swipeUp() }
+            inline.tap()
+            app.tabBars.buttons["离线"].tap()
+            let row = app.buttons["offlineVideoRow"]
+            XCTAssertTrue(row.waitForExistence(timeout: 90), format)
+            XCTAssertEqual(row.label, "林间 散步 的记录", format)
+            app.terminate()
+            app.launchArguments = ["--fixture-cloud-sync", fixtureID]
+            app.launch()
+            app.tabBars.buttons["离线"].tap()
+            XCTAssertTrue(row.waitForExistence(timeout: 20))
+            XCTAssertEqual(row.label, "林间 散步 的记录", format)
+            app.terminate()
+        }
+    }
+
     func testHLSCardTitleReachesConfirmationAndMatchingMP4OfflineRecord() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

@@ -83,6 +83,15 @@ def html_for(path):
     if path == "/video-card-titles":
         return title_cards_page("中性视频合集", title_card("card-one", "晨光中的山间步道", "/media/direct.mp4?card=one")
                                 + title_card("card-two", "雨后花园里的小路", "/media/direct.mp4?card=two"))
+    if path in ("/video-card-inline-mp4", "/video-card-inline-hls"):
+        src = "/media/direct.mp4" if path.endswith("mp4") else "/media/hls-separate/master.m3u8"
+        return title_cards_page("混排视频合集", f'''<article class="video-card">
+            <header><a rel="author" href="/fixture-author">示例作者</a><time>7 小时前</time></header>
+            <div class="content">林间 <strong>散步</strong> 的记录<br>
+                <a rel="tag" href="/fixture-tag">自然</a> (source.example)<br>
+                <div class="player-shell"><video controls playsinline preload="metadata" src="{src}"></video></div>
+            </div><footer><button>赞 30</button><button>评论 0</button><button>分享给朋友</button></footer>
+            </article>''')
     if path == "/video-card-title-inner":
         return title_cards_page("内嵌页面的通用标题", title_card("frame-card", "窗边的盆栽观察", "/media/direct.mp4?card=frame"))
     if path == "/video-card-title-frame":
