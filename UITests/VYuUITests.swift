@@ -200,6 +200,41 @@ final class VYuUITests: XCTestCase {
         }
     }
 
+    func testDeepGenericCardClickReadsUpdatedTitleForMP4AndHLS() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        for format in ["mp4", "hls"] {
+            let fixtureID = UUID().uuidString
+            app.launchArguments = ["--fixture-cloud-sync", fixtureID,
+                                   "--fixture-url", "http://127.0.0.1:8765/video-card-generic-" + format]
+            app.launch()
+            let update = app.webViews.buttons["更新标题"]
+            XCTAssertTrue(update.waitForExistence(timeout: 20))
+            for _ in 0..<5 where !update.isHittable { app.webViews.firstMatch.swipeUp() }
+            update.tap()
+            // WebKit's accessibility traversal order can differ from DOM order
+            // across deeply nested players. Select this card's action by scope.
+            let inline = app.webViews.otherElements["目标视频卡片"].buttons["下载此视频"]
+            XCTAssertTrue(inline.waitForExistence(timeout: 20))
+            for _ in 0..<5 where !inline.isHittable { app.webViews.firstMatch.swipeUp() }
+            inline.tap()
+            XCTAssertTrue(app.staticTexts["downloadToast"].waitForExistence(timeout: 20))
+            app.tabBars.buttons["离线"].tap()
+            let row = app.buttons["offlineVideoRow"]
+            XCTAssertTrue(row.waitForExistence(timeout: 90), format)
+            XCTAssertEqual(row.label, "山谷里更新后的步行记录", format)
+            XCTAssertEqual(app.buttons.matching(identifier: "offlineVideoRow").count, 1)
+            app.terminate()
+            app.launchArguments = ["--fixture-cloud-sync", fixtureID]
+            app.launch()
+            app.tabBars.buttons["离线"].tap()
+            XCTAssertTrue(row.waitForExistence(timeout: 20))
+            XCTAssertEqual(row.label, "山谷里更新后的步行记录", format)
+            app.terminate()
+        }
+    }
+
     func testHLSCardTitleReachesConfirmationAndMatchingMP4OfflineRecord() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

@@ -352,6 +352,165 @@ import WebKit
         XCTAssertEqual(browser.candidates.first { $0.url.query == "plain-card=generic-neighbor" }?.title, "中性卡片页面")
     }
 
+    func testDeepDecoratedPlayerKeepsItsOuterCardTitle() async throws {
+        let browser = mountBrowser()
+        browser.open(base.absoluteString)
+        try await waitUntil("deep player page committed") { browser.hasCurrentDocument && !browser.isLoading }
+        _ = try await browser.webView.evaluateJavaScript("""
+            document.title = '通用标题回退';
+            const player = '<video preload="none" src="/media/direct.mp4?general=deep"></video>' +
+              '<div class="player-controls" aria-hidden="true">' + '<span></span>'.repeat(600) + '</div>';
+            document.body.innerHTML = '<main><article><p>高处眺望山谷的记录</p>' +
+              '<div class="player-wrapper">'.repeat(10) + player + '</div>'.repeat(10) + '</article></main>';
+            window.__vyuRescan(); true;
+            """)
+        try await waitUntil("deep player discovered") { browser.candidates.contains { $0.url.query == "general=deep" } }
+        XCTAssertEqual(browser.candidates.first { $0.url.query == "general=deep" }?.title, "高处眺望山谷的记录")
+    }
+
+    func testCardHeaderHeadingAndLinkedCaptionAreContentTitles() async throws {
+        let browser = mountBrowser()
+        browser.open(base.absoluteString)
+        try await waitUntil("header and links page committed") { browser.hasCurrentDocument && !browser.isLoading }
+        _ = try await browser.webView.evaluateJavaScript("""
+            document.title = '通用标题回退';
+            document.body.innerHTML = '<main>' +
+              '<article><header><h2><a href="/fixture-post">花园里的雨滴</a></h2><time>刚刚</time></header>' +
+              '<video preload="none" src="/media/direct.mp4?general=header"></video></article>' +
+              '<div class="comment"><header><a href="/fixture-author">示例作者</a><time>7 小时前</time></header>' +
+              '<p><a href="/fixture-post">屋檐下的风铃声</a></p><p><a rel="tag">自然</a> (source.example)</p>' +
+              '<div><video preload="none" src="/media/direct.mp4?general=linked"></video></div></div>' +
+              '<article><header><a href="/fixture-author">不可作为标题的作者</a></header>' +
+              '<header><a href="/fixture-author"><img alt="合成头像"></a><h3>有头像的作者昵称</h3><time>7 小时前</time></header>' +
+              '<header style="display:none"><h2>隐藏标题不能被使用</h2></header>' +
+              '<p><a rel="tag">自然</a> (source.example)</p><video preload="none" src="/media/direct.mp4?general=untitled"></video></article></main>';
+            window.__vyuRescan(); true;
+            """)
+        try await waitUntil("header and linked videos discovered") {
+            browser.candidates.filter { $0.url.query?.hasPrefix("general=") == true }.count == 3
+        }
+        XCTAssertEqual(browser.candidates.first { $0.url.query == "general=header" }?.title, "花园里的雨滴")
+        XCTAssertEqual(browser.candidates.first { $0.url.query == "general=linked" }?.title, "屋檐下的风铃声")
+        XCTAssertEqual(browser.candidates.first { $0.url.query == "general=untitled" }?.title, "通用标题回退")
+    }
+
+    func testVideoDataTitleAndContainerDataTitleAreBoundedAndUpdateWithReusedPlayer() async throws {
+        let browser = mountBrowser()
+        browser.open(base.absoluteString)
+        try await waitUntil("data title page committed") { browser.hasCurrentDocument && !browser.isLoading }
+        _ = try await browser.webView.evaluateJavaScript("""
+            document.title = '通用标题回退';
+            document.body.innerHTML = '<article><video data-video-title="窗边的绿叶" preload="none" src="/media/direct.mp4?general=data"></video></article>' +
+              '<article data-title="秋天的河岸"><div><video preload="none" src="/media/direct.mp4?general=container"></video></div></article>';
+            window.__vyuRescan(); true;
+            """)
+        try await waitUntil("data title videos discovered") { browser.candidates.filter { $0.url.query?.hasPrefix("general=") == true }.count == 2 }
+        XCTAssertEqual(browser.candidates.first { $0.url.query == "general=data" }?.title, "窗边的绿叶")
+        XCTAssertEqual(browser.candidates.first { $0.url.query == "general=container" }?.title, "秋天的河岸")
+        _ = try await browser.webView.evaluateJavaScript("""
+            document.querySelector('video').setAttribute('data-video-title', '新一段窗边的观察');
+            document.querySelectorAll('article')[1].setAttribute('data-title', '星'.repeat(500));
+            true;
+            """)
+        try await waitUntil("reused player takes current bounded metadata") {
+            browser.candidates.first { $0.url.query == "general=data" }?.title == "新一段窗边的观察" &&
+            browser.candidates.first { $0.url.query == "general=container" }?.title == String(repeating: "星", count: 240)
+        }
+    }
+
+    func testStructuredVideoTitleRequiresExactMediaURLAndRejectsUnrelatedMetadata() async throws {
+        let browser = mountBrowser()
+        browser.open(base.absoluteString)
+        try await waitUntil("structured title page committed") { browser.hasCurrentDocument && !browser.isLoading }
+        _ = try await browser.webView.evaluateJavaScript("""
+            document.title = '通用标题回退';
+            document.body.innerHTML = '<main><article><video preload="none" src="/media/direct.mp4?general=structured"></video></article>' +
+              '<article><p>卡片自身的标题优先</p><video preload="none" src="/media/direct.mp4?general=local"></video></article>' +
+              '<article><video preload="none" src="/media/direct.mp4?general=unmatched"></video></article></main>';
+            const script = document.createElement('script'); script.type = 'application/ld+json';
+            script.textContent = JSON.stringify({'@graph':[
+              {'@type':'VideoObject',name:'源地址相同的视频标题',contentUrl:location.origin+'/media/direct.mp4?general=structured'},
+              {'@type':'VideoObject',name:'不应覆盖卡片标题',contentUrl:location.origin+'/media/direct.mp4?general=local'},
+              {'@type':'VideoObject',name:'别的视频或过期签名',contentUrl:location.origin+'/media/direct.mp4?general=unmatched&signature=old'},
+              {'@type':'Article',name:'不是视频的结构数据',contentUrl:location.origin+'/media/direct.mp4?general=unmatched'}
+            ]}); document.head.append(script);
+            window.__vyuRescan(); true;
+            """)
+        try await waitUntil("structured title videos discovered") { browser.candidates.filter { $0.url.query?.hasPrefix("general=") == true }.count == 3 }
+        XCTAssertEqual(browser.candidates.first { $0.url.query == "general=structured" }?.title, "源地址相同的视频标题")
+        XCTAssertEqual(browser.candidates.first { $0.url.query == "general=local" }?.title, "卡片自身的标题优先")
+        XCTAssertEqual(browser.candidates.first { $0.url.query == "general=unmatched" }?.title, "通用标题回退")
+    }
+
+    func testStructuredTitleConflictsAndSizeLimitsCannotPublishPartialOrStaleNames() async throws {
+        let browser = mountBrowser()
+        browser.open(base.absoluteString)
+        try await waitUntil("metadata limit page committed") { browser.hasCurrentDocument && !browser.isLoading }
+        _ = try await browser.webView.evaluateJavaScript("""
+            document.title = '结构数据安全回退';
+            document.body.innerHTML = '<article><video preload="none" src="/media/direct.mp4?general=limits"></video></article>';
+            window.titleSchema = document.createElement('script'); window.titleSchema.type = 'application/ld+json';
+            document.head.append(window.titleSchema);
+            window.validVideoSchema = {'@type':'VideoObject',name:'有效的视频名称',contentUrl:location.origin+'/media/direct.mp4?general=limits'};
+            true;
+            """)
+        for variant in ["conflict", "malformed", "oversized", "nodes", "depth"] {
+            // Each limit case has its own scan budget; repeated ordinary title
+            // updates intentionally have a separate per-URL coalescing limit.
+            _ = try await browser.webView.evaluateJavaScript("window.titleSchema.textContent=JSON.stringify(window.validVideoSchema); window.__vyuRescan(); true")
+            try await waitUntil("valid schema title before \(variant)") {
+                browser.candidates.first { $0.url.query == "general=limits" }?.title == "有效的视频名称"
+            }
+            _ = try await browser.webView.callAsyncJavaScript("""
+                const valid = window.validVideoSchema;
+                if (variant === 'conflict') window.titleSchema.textContent = JSON.stringify([valid,{...valid,name:'同一来源的冲突名称'}]);
+                if (variant === 'malformed') window.titleSchema.textContent = '{invalid JSON';
+                if (variant === 'oversized') window.titleSchema.textContent = JSON.stringify({...valid,padding:'x'.repeat(65536)});
+                if (variant === 'nodes') window.titleSchema.textContent = JSON.stringify([valid,...Array.from({length:513},()=>({}))]);
+                if (variant === 'depth') {
+                  let nested = valid; for (let depth=0; depth<18; depth++) nested={nested};
+                  window.titleSchema.textContent=JSON.stringify(nested);
+                }
+                return true;
+                """, arguments: ["variant": variant], in: nil, contentWorld: .page)
+            try await waitUntil("unsafe schema returns to page title for \(variant)") {
+                browser.candidates.first { $0.url.query == "general=limits" }?.title == "结构数据安全回退"
+            }
+        }
+    }
+
+    func testMoreThanEightyVideosUsesConservativeScopeFallback() async throws {
+        let browser = mountBrowser()
+        browser.open(base.absoluteString)
+        try await waitUntil("large media page committed") { browser.hasCurrentDocument && !browser.isLoading }
+        _ = try await browser.webView.evaluateJavaScript("""
+            document.title = '大量播放器回退';
+            document.body.innerHTML = '<main><section><div><video preload="none" src="/media/direct.mp4?large=ambiguous"></video></div>' +
+              '<article><h2>另一个视频的独立名称</h2><video preload="none" src="/media/direct.mp4?large=owned"></video></article></section>' +
+              Array.from({length:79},(_,index)=>'<article><video preload="none" src="/media/direct.mp4?large='+index+'"></video></article>').join('') + '</main>';
+            window.__vyuRescan(); true;
+            """)
+        try await waitUntil("large media first two candidates discovered") {
+            browser.candidates.contains { $0.url.query == "large=ambiguous" } && browser.candidates.contains { $0.url.query == "large=owned" }
+        }
+        XCTAssertEqual(browser.candidates.first { $0.url.query == "large=ambiguous" }?.title, "大量播放器回退")
+        XCTAssertEqual(browser.candidates.first { $0.url.query == "large=owned" }?.title, "另一个视频的独立名称")
+    }
+
+    func testRejectedMetadataSiblingsStillConsumeTheCaptionSearchBudget() async throws {
+        let browser = mountBrowser()
+        browser.open(base.absoluteString)
+        try await waitUntil("rejected node budget page committed") { browser.hasCurrentDocument && !browser.isLoading }
+        _ = try await browser.webView.evaluateJavaScript("""
+            document.title = '有界查找回退';
+            document.body.innerHTML = '<article>' + '<div class="controls"></div>'.repeat(300) +
+              '<h2>超出搜索预算的内容</h2><div></div><video preload="none" src="/media/direct.mp4?general=budget"></video></article>';
+            window.__vyuRescan(); true;
+            """)
+        try await waitUntil("bounded rejection fixture discovered") { browser.candidates.contains { $0.url.query == "general=budget" } }
+        XCTAssertEqual(browser.candidates.first { $0.url.query == "general=budget" }?.title, "有界查找回退")
+    }
+
     func testMixedInlineCaptionExcludesLinksMetadataHiddenAndOversizedText() async throws {
         let browser = mountBrowser()
         browser.open(base.absoluteString)

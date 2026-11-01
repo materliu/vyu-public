@@ -92,6 +92,20 @@ def html_for(path):
                 <div class="player-shell"><video controls playsinline preload="metadata" src="{src}"></video></div>
             </div><footer><button>赞 30</button><button>评论 0</button><button>分享给朋友</button></footer>
             </article>''')
+    if path in ("/video-card-generic-mp4", "/video-card-generic-hls"):
+        src = "/media/direct.mp4?generic=selected" if path.endswith("mp4") else "/media/hls-separate/master.m3u8"
+        nested_player = ('<div class="player-wrapper">' * 10
+                         + f'<video controls playsinline preload="metadata" src="{src}"></video>'
+                         + '<div class="player-controls" aria-hidden="true">' + '<span></span>' * 600 + '</div>'
+                         + '</div>' * 10)
+        return title_cards_page("通用结构视频合集", title_card("unselected-card", "旁边的视频不能被下载", "/media/direct.mp4?generic=other")
+                                + f'''<div class="comment video-card" id="selected-card" role="group" aria-label="目标视频卡片">
+                                    <header><a rel="author" href="/fixture-author">示例作者</a><time>7 小时前</time>
+                                      <h2 id="generic-card-title"><a href="/fixture-post">山谷里的步行记录</a></h2></header>
+                                    <div class="tags"><a rel="tag" href="/fixture-tag">自然</a> (source.example)</div>
+                                    <button onclick="document.querySelector('#generic-card-title a').textContent='山谷里更新后的步行记录'">更新标题</button>
+                                    {nested_player}<footer><button>赞 30</button><button>分享给朋友</button></footer>
+                                  </div>''')
     if path == "/video-card-title-inner":
         return title_cards_page("内嵌页面的通用标题", title_card("frame-card", "窗边的盆栽观察", "/media/direct.mp4?card=frame"))
     if path == "/video-card-title-frame":

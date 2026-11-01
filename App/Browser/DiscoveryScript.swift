@@ -44,12 +44,30 @@ enum DiscoveryScript {
               'play', 'pause', 'play video', 'pause video', '播放', '暂停', '播放视频', '暂停视频',
               '视频', '影片', '播放器', '视频播放器', '内嵌视频', '嵌入视频',
               '下载', '下载视频', '下载此视频', '点赞', '评论', '分享', '分享给朋友',
-              'download', 'download video', 'like', 'comment', 'share'].includes(title.toLowerCase()) ? '' : title;
+              '来源', '来源链接', '查看来源', '原文', '查看原文', '阅读全文', '更多',
+              'download', 'download video', 'like', 'comment', 'share', 'source', 'view source', 'read more'].includes(title.toLowerCase()) ? '' : title;
           }
           const titleSemantic = 'figcaption,[itemprop="name"],[itemprop="description"],[data-testid="tweetText"],h1,h2,h3,h4,h5,h6,[role="heading"]';
           const titleNodeBudget = 256;
-          const titleExcluded = 'script,style,template,nav,header,footer,time,button,input,select,textarea,video,[data-vyu-download],[role="button"],[role="toolbar"],[rel~="author"],[rel~="tag"],[itemprop="author"],[itemprop="datePublished"],[itemprop="dateModified"]';
-          function titleContext() { return {videos: new WeakMap(), semantic: new WeakMap(), plain: new WeakMap()}; }
+          const titleExcluded = 'script,style,template,nav,footer,time,button,input,select,textarea,video,[data-vyu-download],[role="button"],[role="toolbar"],[rel~="author"],[rel~="tag"],[itemprop="author"],[itemprop="datePublished"],[itemprop="dateModified"]';
+          function titleContext() {
+            const context = {videos: new WeakMap(), semantic: new WeakMap(), plain: new WeakMap(), indexed: true};
+            // Index media ancestry, not all of a player's decorative DOM. The
+            // snapshot is synchronous and discarded after this scan or click.
+            const videos = document.getElementsByTagName('video');
+            if (videos.length > 80) { context.indexed = false; return context; }
+            for (let index = 0; index < videos.length; index++) {
+              let ancestor = videos[index], depth = 0;
+              for (; ancestor && depth < 64; depth++, ancestor = ancestor.parentElement) {
+                context.videos.set(ancestor, Math.min(2, (context.videos.get(ancestor) || 0) + 1));
+              }
+              if (ancestor) context.indexed = false;
+            }
+            // A partial ancestry index must not claim that an unknown subtree
+            // has zero videos; retain the conservative bounded-walk fallback.
+            if (!context.indexed) context.videos = new WeakMap();
+            return context;
+          }
           function titleRole(element) {
             return ((element.getAttribute('class') || '') + ' ' + (element.id || '') + ' ' +
               (element.getAttribute('data-testid') || '')).slice(0, 1024).replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
@@ -57,14 +75,15 @@ enum DiscoveryScript {
           function titleHint(element) {
             return /(?:^|[\s_-])(?:title|headline|caption|subject)(?:$|[\s_-])/.test(titleRole(element));
           }
-          function metadataRole(element) {
+          function metadataRole(element, context) {
             return element.matches(titleExcluded) ||
-              /(?:^|[\s_-])(?:author|byline|avatar|username|user-info|profile|timestamp|timeago|metadata|meta|tags?|hashtags?|badge|categories|category|social|engagement|shares?|likes?|comments?|reactions?|actions?|toolbar|controls?|download)(?:$|[\s_-])/.test(titleRole(element));
+              (/(?:^|[\s_-])(?:author|byline|avatar|username|user-info|profile|timestamp|timeago|metadata|meta|tags?|hashtags?|badge|categories|category|social|engagement|shares?|likes?|comments?|reactions?|actions?|toolbar|controls?|download)(?:$|[\s_-])/.test(titleRole(element)) &&
+               !(context && localCard(element) && boundedVideoCount(element, context) === 1));
           }
           function localCard(element) {
             if (element.matches('article,figure,li,[role="article"]')) return true;
             return (element.getAttribute('class') || '').slice(0, 1024).split(/\s+/).some(value =>
-              /^(?:(?:video|media|feed|post)[_-])?(?:card|post|entry|item)$/.test(value.toLowerCase()));
+              /^(?:(?:video|media|feed|post)[_-])?(?:card|post|entry|item|comment)$/.test(value.toLowerCase()));
           }
           function belongsToVideoScope(element, video, container) {
             let ancestor = element;
@@ -74,22 +93,29 @@ enum DiscoveryScript {
             // A deeply nested or disconnected node is not reliable evidence.
             return ancestor === container;
           }
-          function hasDirectMetadata(element, links = false) {
+          function hasDirectMetadata(element, links = false, dates = true) {
             // An unlabelled author row still commonly contains an avatar or a
             // time element. Only inspect its immediate children, not the card.
             let child = element.firstElementChild;
             for (let count = 0; child && count < 32; count++, child = child.nextElementSibling) {
-              if (child.matches('img,time') || (links && child.tagName === 'A')) return true;
+              if (child.tagName === 'IMG' || (dates && child.tagName === 'TIME') ||
+                  (child.tagName === 'A' && child.firstElementChild && child.firstElementChild.tagName === 'IMG') ||
+                  (links && child.tagName === 'A')) return true;
             }
             return false;
           }
           function excludedTitleElement(element, context, plain = false, inlineLinks = false) {
+            let labelled = false;
             for (let ancestor = element, depth = 0; ancestor && depth < 6; depth++, ancestor = ancestor.parentElement) {
-              if (metadataRole(ancestor)) return true;
+              labelled = labelled || ancestor.matches(titleSemantic) || titleHint(ancestor);
+              if (metadataRole(ancestor, context) || (ancestor.tagName === 'HEADER' && !labelled)) return true;
               if (ancestor !== element && (ancestor === document.body || ancestor === document.documentElement ||
                   ancestor.tagName === 'MAIN' || localCard(ancestor) || boundedVideoCount(ancestor, context) !== 0)) break;
               if (ancestor.hidden || ancestor.getAttribute('aria-hidden') === 'true') return true;
-              if (hasDirectMetadata(ancestor, plain && !titleHint(ancestor) && !inlineLinks)) return true;
+              const style = getComputedStyle(ancestor);
+              if (style.display === 'none' || style.visibility === 'hidden') return true;
+              if (hasDirectMetadata(ancestor, plain && !titleHint(ancestor) && !inlineLinks,
+                  !(ancestor.tagName === 'HEADER' && labelled))) return true;
             }
             return false;
           }
@@ -123,7 +149,7 @@ enum DiscoveryScript {
                 }
                 if (node.nodeType !== Node.ELEMENT_NODE) continue;
                 if (boundedVideoCount(node, context) !== 0) { finish(); return; }
-                if (!node.matches('span,em,strong,b,i,u,s,small,mark,sub,sup') || metadataRole(node) ||
+                if (!node.matches('span,em,strong,b,i,u,s,small,mark,sub,sup') || metadataRole(node, context) ||
                     node.hidden || node.getAttribute('aria-hidden') === 'true' ||
                     getComputedStyle(node).display === 'none' || getComputedStyle(node).visibility === 'hidden') {
                   finish(); continue;
@@ -139,6 +165,7 @@ enum DiscoveryScript {
             if (!element) return 0;
             if (element.tagName === 'VIDEO') return 1;
             if (context.videos.has(element)) return context.videos.get(element);
+            if (context.indexed && element.ownerDocument === document && element.isConnected) return 0;
             const walker = document.createTreeWalker(element, NodeFilter.SHOW_ELEMENT);
             let node, visited = 0, count = 0;
             while ((node = walker.nextNode())) {
@@ -149,27 +176,32 @@ enum DiscoveryScript {
             context.videos.set(element, count);
             return count;
           }
+          function captionNodes(element, context, semantic) {
+            const nodes = [];
+            let node = element.firstElementChild, visited = 0;
+            while (node && ++visited <= titleNodeBudget && (!semantic || nodes.length < 16)) {
+              // Each inner player branch was already searched on the way up.
+              // Count rejected nodes too; a TreeWalker filter alone could visit
+              // unlimited rejected siblings inside a single nextNode() call.
+              const skip = boundedVideoCount(node, context) !== 0 || localCard(node) || metadataRole(node, context);
+              if (!skip) {
+                if (semantic ? node.matches(titleSemantic) || titleHint(node) : node.matches('div,span,p,a')) nodes.push(node);
+                if (node.firstElementChild) { node = node.firstElementChild; continue; }
+              }
+              while (node !== element && !node.nextElementSibling) node = node.parentElement;
+              node = node !== element ? node.nextElementSibling : null;
+            }
+            return nodes;
+          }
           function boundedSemanticNodes(element, context) {
             if (context.semantic.has(element)) return context.semantic.get(element);
-            const walker = document.createTreeWalker(element, NodeFilter.SHOW_ELEMENT);
-            const nodes = [];
-            let node, visited = 0;
-            while (nodes.length < 16 && (node = walker.nextNode())) {
-              if (++visited > titleNodeBudget) break;
-              if ((node.matches(titleSemantic) || titleHint(node)) && boundedVideoCount(node, context) === 0) nodes.push(node);
-            }
+            const nodes = captionNodes(element, context, true);
             context.semantic.set(element, nodes);
             return nodes;
           }
           function boundedPlainNodes(element, context) {
             if (context.plain.has(element)) return context.plain.get(element);
-            const walker = document.createTreeWalker(element, NodeFilter.SHOW_ELEMENT);
-            const nodes = [];
-            let node, visited = 0;
-            while ((node = walker.nextNode())) {
-              if (++visited > titleNodeBudget) break;
-              if (node.matches('div,span,p') && boundedVideoCount(node, context) === 0) nodes.push(node);
-            }
+            const nodes = captionNodes(element, context, false);
             context.plain.set(element, nodes);
             return nodes;
           }
@@ -202,7 +234,15 @@ enum DiscoveryScript {
           function titleText(element, explicit = false, context = titleContext()) {
             if (!element || boundedVideoCount(element, context) !== 0) return '';
             const plain = !element.matches(titleSemantic) && !titleHint(element);
-            if (!explicit && excludedTitleElement(element, context, plain || element.tagName === 'P')) return '';
+            const linked = element.tagName === 'A';
+            if (linked && !explicit) {
+              const href = element.getAttribute('href') || '';
+              if (!href || href.startsWith('#') || element.hasAttribute('download')) return '';
+              try { const url = new URL(href, document.baseURI);
+                if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return '';
+              } catch (_) { return ''; }
+            }
+            if (!explicit && excludedTitleElement(element, context, plain || element.tagName === 'P', linked)) return '';
             if (!explicit && (element.hidden || element.getAttribute('aria-hidden') === 'true' ||
                 getComputedStyle(element).display === 'none' || getComputedStyle(element).visibility === 'hidden')) return '';
             // Count elements as well as text: empty or deeply nested markup must
@@ -216,7 +256,7 @@ enum DiscoveryScript {
               const owner = node.parentElement;
               if (!owner || owner.closest('script,style,template,nav,button,video,[data-vyu-download]')) continue;
               if (!explicit && (!belongsToTextBlock(owner, element) ||
-                  excludedTitleElement(owner, context, plain || element.tagName === 'P') ||
+                  excludedTitleElement(owner, context, plain || element.tagName === 'P', linked) ||
                   owner.closest('[hidden],[aria-hidden="true"]'))) continue;
               text += ' ' + node.data.slice(0, 1600);
               if (text.length > 320) return explicit ? cleanTitle(text) : '';
@@ -226,8 +266,57 @@ enum DiscoveryScript {
             if (!explicit && text.replace(/\s+/g, ' ').trim().length > 240) return '';
             return explicit ? cleanTitle(text) : plainTitle(text);
           }
+          function dataTitle(element) {
+            for (const name of ['data-video-title', 'data-title', 'data-caption']) {
+              const value = contentTitle(element.getAttribute(name));
+              if (value) return value;
+            }
+            return '';
+          }
+          function structuredVideoTitles(context) {
+            if (context.structured) return context.structured;
+            const titles = new Map(), scripts = document.getElementsByTagName('script');
+            if (!encoder) { context.structured = titles; return titles; }
+            let bytes = 0, visited = 0, read = 0;
+            for (let index = 0; index < Math.min(scripts.length, 64) && read < 8; index++) {
+              const script = scripts[index];
+              if ((script.getAttribute('type') || '').toLowerCase().trim() !== 'application/ld+json') continue;
+              read++;
+              let text = '', child = script.firstChild, chunks = 0;
+              for (; child && chunks < 8; chunks++, child = child.nextSibling) {
+                if (child.nodeType !== Node.TEXT_NODE || child.length > 65536 - text.length) break;
+                text += child.data;
+              }
+              if (child) continue;
+              if ((bytes += encoder.encode(text).length) > 262144) break;
+              let root;
+              try { root = JSON.parse(text); } catch (_) { continue; }
+              const stack = [[root, 0]];
+              while (stack.length) {
+                const [value, depth] = stack.pop();
+                if (++visited > 512 || depth > 16) { context.structured = new Map(); return context.structured; }
+                if (!value || typeof value !== 'object') continue;
+                const keys = Object.keys(value);
+                if (keys.length > 512 || stack.length + keys.length > 512) { context.structured = new Map(); return context.structured; }
+                const types = Array.isArray(value['@type']) ? value['@type'].slice(0, 8) : [value['@type']];
+                if (types.some(type => ['VideoObject', 'https://schema.org/VideoObject', 'http://schema.org/VideoObject'].includes(type)) &&
+                    typeof value.contentUrl === 'string' && value.contentUrl.length <= 8192 &&
+                    !/[\u0000-\u001f\u007f]/.test(value.contentUrl)) {
+                  try {
+                    const url = new URL(value.contentUrl, document.baseURI), name = contentTitle(value.name);
+                    if (name && ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password) {
+                      titles.set(url.href, titles.has(url.href) && titles.get(url.href) !== name ? null : name);
+                    }
+                  } catch (_) {}
+                }
+                for (const key of keys) if (value[key] && typeof value[key] === 'object') stack.push([value[key], depth + 1]);
+              }
+            }
+            context.structured = titles;
+            return titles;
+          }
           function videoTitle(video, context = titleContext()) {
-            const attribute = contentTitle(video.getAttribute('title'));
+            const attribute = contentTitle(video.getAttribute('title')) || dataTitle(video);
             if (attribute) return attribute;
             const labelled = (video.getAttribute('aria-labelledby') || '').slice(0, 1024).trim().split(/\s+/).slice(0, 8)
               .map(id => titleText(document.getElementById(id), true, context)).filter(Boolean).join(' ');
@@ -237,7 +326,7 @@ enum DiscoveryScript {
             const directText = element => element &&
               (element.matches(titleSemantic) || titleHint(element) || element.tagName === 'P') ? titleText(element, false, context) : '';
             let branch = video;
-            for (let depth = 0; branch && depth < 5; depth++, branch = branch.parentElement) {
+            for (let depth = 0; branch && depth < 16; depth++, branch = branch.parentElement) {
               const parent = branch.parentElement;
               const boundary = !parent || parent === document.body || parent === document.documentElement || parent.tagName === 'MAIN';
               // Never scan a document-wide container just to find one video's
@@ -253,11 +342,13 @@ enum DiscoveryScript {
                   const safeSibling = uniqueParent || (direction === 'previousElementSibling' && sibling.matches('h1,h2,h3,h4,h5,h6,[role="heading"]'));
                   const nearby = safeSibling ? directText(sibling) : '';
                   if (nearby) return nearby;
-                  if (uniqueParent && (metadataRole(sibling) || hasDirectMetadata(sibling, true))) continue;
+                  if (uniqueParent && (metadataRole(sibling, context) || hasDirectMetadata(sibling, true))) continue;
                   break;
                 }
               }
               if (boundary || !uniqueParent) break;
+              const containerTitle = !metadataRole(parent, context) ? dataTitle(parent) : '';
+              if (containerTitle) return containerTitle;
               const nodes = boundedSemanticNodes(parent, context).filter(node => belongsToVideoScope(node, video, parent));
               const caption = nodes.find(node => node.tagName === 'FIGCAPTION');
               const captionText = titleText(caption, false, context);
@@ -287,7 +378,15 @@ enum DiscoveryScript {
             }
             const described = (video.getAttribute('aria-describedby') || '').slice(0, 1024).trim().split(/\s+/).slice(0, 8)
               .map(id => titleText(document.getElementById(id), true, context)).filter(Boolean).join(' ');
-            return contentTitle(described) || cleanTitle(document.title);
+            if (contentTitle(described)) return contentTitle(described);
+            const selected = selectedSource(video);
+            if (selected && selected.url && !selected.url.startsWith('blob:')) {
+              try {
+                const title = structuredVideoTitles(context).get(new URL(selected.url, document.baseURI).href);
+                if (title) return title;
+              } catch (_) {}
+            }
+            return cleanTitle(document.title);
           }
           function post(event, url, source, mime, title) {
             try {
@@ -847,7 +946,7 @@ enum DiscoveryScript {
               if (changes.some(change => change.type !== 'attributes' || !controlHosts.has(change.target))) scheduleScan();
             }).observe(document, {
               subtree: true, childList: true, characterData: true, attributes: true,
-              attributeFilter: ['src', 'type', 'class', 'style', 'hidden', 'title', 'aria-label', 'aria-labelledby', 'aria-describedby']
+              attributeFilter: ['src', 'type', 'class', 'style', 'hidden', 'title', 'data-video-title', 'data-title', 'data-caption', 'href', 'rel', 'aria-hidden', 'aria-label', 'aria-labelledby', 'aria-describedby']
             });
           } catch (_) {}
           window.addEventListener('message', event => {
