@@ -75,6 +75,7 @@
 		B72E1B163D2BA0EAA0C765BE /* BackgroundHLSStartupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2EB5CE9240BF22B533E8E86 /* BackgroundHLSStartupTests.swift */; };
 		B9038C4D639329010F765A9D /* DownloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0600BDC3E6980A574E8AF2E7 /* DownloadTests.swift */; };
 		BA18DCC8FB490A6539D29DF0 /* HLSFileExporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 954D4988D56E58B996AC3C8F /* HLSFileExporterTests.swift */; };
+		C1F4BDE52987A32AE1A73CC2 /* IPadLayoutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1DCFCE3220809A8EB68DCB4 /* IPadLayoutUITests.swift */; };
 		C7D5E47C636A8E5E993967C0 /* DownloadProgressPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E979DDA1B53DD2A493ECA798 /* DownloadProgressPresentationTests.swift */; };
 		C9650FD337B2F74F91D1D01A /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A809CA351C7B4380B72AB484 /* DownloadManager.swift */; };
 		CEB099897F0DE8A677EC53AC /* HLSRelayFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925875FDEEB6A537D2E0406B /* HLSRelayFormatTests.swift */; };
@@ -203,6 +204,7 @@
 		BCD3F31096647249259AA15F /* VideoStorageSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoStorageSettingsSheet.swift; sourceTree = "<group>"; };
 		BF240476CFEBBD3165070229 /* HLSFileExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HLSFileExporter.swift; sourceTree = "<group>"; };
 		C17CBD5CB3A0DE40B6D08EE0 /* VideoRenameUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRenameUITests.swift; sourceTree = "<group>"; };
+		C1DCFCE3220809A8EB68DCB4 /* IPadLayoutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPadLayoutUITests.swift; sourceTree = "<group>"; };
 		C5CACA936CC8679B39B2E4CC /* AppPasscodeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPasscodeUITests.swift; sourceTree = "<group>"; };
 		C5F35AE4140C1961B392C265 /* OfflinePlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflinePlayer.swift; sourceTree = "<group>"; };
 		C74BF5E53CB6423A6DAAB8B5 /* SelectedVideoFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectedVideoFileTests.swift; sourceTree = "<group>"; };
@@ -293,6 +295,7 @@
 				11D1399F82CC356B2EED8D72 /* BrowserPopupUITests.swift */,
 				DCEDFCFFEA01C30D0D86CAEE /* DownloadStartupUITests.swift */,
 				1CA16A0A1073CF95058862B5 /* HistoryUITests.swift */,
+				C1DCFCE3220809A8EB68DCB4 /* IPadLayoutUITests.swift */,
 				7AF87EBEE296EDBED49F2AAC /* LocalVideoImportUITests.swift */,
 				90729891ECB85E6496C2CF9F /* NavigationUITests.swift */,
 				09C3E211CAFA418FA6C7FBCA /* OfflineBatchUITests.swift */,
@@ -602,6 +605,7 @@
 				56EF4C2AD9D1F309B5DDE9FF /* BrowserPopupUITests.swift in Sources */,
 				FA61AD7BE5CBA3259AB62436 /* DownloadStartupUITests.swift in Sources */,
 				4288FD84DFB22A35E92E2F1E /* HistoryUITests.swift in Sources */,
+				C1F4BDE52987A32AE1A73CC2 /* IPadLayoutUITests.swift in Sources */,
 				CF237F6C4420BFB93FE4FC83 /* LocalVideoImportUITests.swift in Sources */,
 				DC6BA933E8CD551A420E3B62 /* NavigationUITests.swift in Sources */,
 				F822414A86590F8D588E3C26 /* OfflineBatchUITests.swift in Sources */,
@@ -781,7 +785,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "$(VYU_SIGNING_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 23;
+				CURRENT_PROJECT_VERSION = 24;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -878,7 +882,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "$(VYU_SIGNING_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 23;
+				CURRENT_PROJECT_VERSION = 24;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

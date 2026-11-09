@@ -61,6 +61,8 @@ struct ContentView: View {
     @ObservedObject var cloud: CloudVideoSync
     @ObservedObject var videoMetadata: VideoMetadataStore
     @ObservedObject var storage: VideoStorageOptimizer
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var tab = 0
     @State private var address = ""
     @State private var showAddress = false
@@ -86,11 +88,7 @@ struct ContentView: View {
     @State private var offlineSelection = OfflineSelection()
 
     var body: some View {
-        TabView(selection: $tab) {
-            NavigationStack { browserPage }.tabItem { Label("浏览", systemImage: "safari") }.tag(0)
-            NavigationStack { favoritesPage }.tabItem { Label("收藏", systemImage: "bookmark") }.tag(1)
-            NavigationStack { downloadsPage }.tabItem { Label("离线", systemImage: "arrow.down.circle") }.tag(2)
-        }
+        navigation
         .sheet(isPresented: $showAddress) { addressSheet }
         .sheet(isPresented: $showVideoImport) { LocalVideoImportSheet(downloads: downloads) }
         .sheet(isPresented: $showStorageSettings) { VideoStorageSettingsSheet(storage: storage, cloud: cloud) }
@@ -195,6 +193,36 @@ struct ContentView: View {
         .onChange(of: browser.documentID) { _, _ in candidatePresentation = nil }
     }
 
+    @ViewBuilder private var navigation: some View {
+        if horizontalSizeClass == .regular {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                List(selection: Binding<Int?>(get: { tab }, set: { if let value = $0 { tab = value } })) {
+                    Label("浏览", systemImage: "safari").tag(0).accessibilityIdentifier("sidebarBrowser")
+                    Label("收藏", systemImage: "bookmark").tag(1).accessibilityIdentifier("sidebarFavorites")
+                    Label("离线", systemImage: "arrow.down.circle").tag(2).accessibilityIdentifier("sidebarDownloads")
+                }
+                .listStyle(.sidebar)
+                .navigationTitle("V语")
+                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 280)
+            } detail: {
+                NavigationStack {
+                    switch tab {
+                    case 1: favoritesPage
+                    case 2: downloadsPage
+                    default: browserPage
+                    }
+                }
+            }
+            .navigationSplitViewStyle(.balanced)
+        } else {
+            TabView(selection: $tab) {
+                NavigationStack { browserPage }.tabItem { Label("浏览", systemImage: "safari") }.tag(0)
+                NavigationStack { favoritesPage }.tabItem { Label("收藏", systemImage: "bookmark") }.tag(1)
+                NavigationStack { downloadsPage }.tabItem { Label("离线", systemImage: "arrow.down.circle") }.tag(2)
+            }
+        }
+    }
+
     @ViewBuilder private var downloadToastView: some View {
         if let toast = downloadToast {
             HStack(spacing: 10) {
@@ -213,6 +241,7 @@ struct ContentView: View {
                     .accessibilityIdentifier("viewDownloadsFromToast")
             }
             .padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+            .frame(maxWidth: 720)
             .padding(.horizontal, 16).padding(.top, 8)
         }
     }
@@ -346,7 +375,8 @@ struct ContentView: View {
                 HistoryButton(library: library, browser: browser, iconOnly: true, openPage: openHistoryPage)
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button { address = ""; showAddress = true } label: { Image(systemName: "plus") }.accessibilityLabel("打开网址")
+                Button { address = ""; showAddress = true } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("打开网址").keyboardShortcut("l", modifiers: .command)
             }
         }
     }
@@ -373,7 +403,7 @@ struct ContentView: View {
                 }
                 Text("网页能播放，不代表能下载。遇到受保护或暂不支持的视频，仍可继续浏览和收藏网页。")
                     .font(.footnote).foregroundStyle(.secondary).padding(.top, 20)
-            }.padding(24)
+            }.padding(24).frame(maxWidth: 760).frame(maxWidth: .infinity)
         }
     }
 
@@ -381,7 +411,8 @@ struct ContentView: View {
         Group {
             if library.favorites.isEmpty { ContentUnavailableView("还没有收藏", systemImage: "bookmark", description: Text("浏览时点收藏，下次从这里打开原网页。")) }
             else { List(library.favorites) { page in pageRow(page).swipeActions { Button("取消收藏", role: .destructive) { library.toggleFavorite(url: page.url, title: page.title) } } } }
-        }.navigationTitle("收藏")
+        }.frame(maxWidth: 1000).frame(maxWidth: .infinity)
+            .background(canvas).navigationTitle("收藏")
     }
 
     private func pageRow(_ page: SavedPage) -> some View {
@@ -458,7 +489,8 @@ struct ContentView: View {
                     }
                 }.scrollDismissesKeyboard(.interactively)
             }
-        }.navigationTitle("离线")
+        }.frame(maxWidth: 1000).frame(maxWidth: .infinity)
+            .background(canvas).navigationTitle("离线")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(offlineSelection.isActive ? "完成" : "选择") {
