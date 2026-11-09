@@ -15,6 +15,7 @@
 		0B4D66985405460A070499E1 /* DownloadStorageSchedulingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411A840E0C8E4E9D52F41357 /* DownloadStorageSchedulingTests.swift */; };
 		0CC0F81E725C0B993A3C239E /* LiveWebDownloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8AC5AB7E3384B800F1DCD40 /* LiveWebDownloadTests.swift */; };
 		0E6BC20DBAEE7036F3770905 /* DownloadProgressPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CC1E7133A5B84AA24244893 /* DownloadProgressPresentation.swift */; };
+		0FC35D2F7D90CE2A0420F90A /* AppPasscodeLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BF4469DB7D007967C63A308 /* AppPasscodeLock.swift */; };
 		0FDB49850CD2D5AA56E3A54D /* BrowserPopupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BAB7A59D9EE536E8FCC170C /* BrowserPopupSheet.swift */; };
 		101474B408E862EFCE3B3275 /* MediaDurationFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 541A38EC53C42F7E0AAF4358 /* MediaDurationFormatter.swift */; };
 		121771CD29FBE3C63636E696 /* MediaRequestContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DFA2A5143279246BB3644B3 /* MediaRequestContext.swift */; };
@@ -33,6 +34,7 @@
 		43B26B16EACBAA8423C0A4D9 /* HLSDownloadRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9C5AA60BDBC8F44362D7DF1 /* HLSDownloadRelay.swift */; };
 		4D790A65A629BA2BF0E32D0B /* HLSDownloadRelayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38BBC10DA1BBEE4CBA0DF0A1 /* HLSDownloadRelayTests.swift */; };
 		4E7DFB3091647E6415D9EF9B /* HLSFileExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF240476CFEBBD3165070229 /* HLSFileExporter.swift */; };
+		50AD672BDB2853FD888B51EB /* AppPasscodeLockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F1222282822F2F669C0B83 /* AppPasscodeLockTests.swift */; };
 		512E95011750F74C7DC97278 /* VideoStorageSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCD3F31096647249259AA15F /* VideoStorageSettingsSheet.swift */; };
 		5374943F3D990FD2149959C6 /* CloudVideoArchiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 963D30A0BC66988692A84CFC /* CloudVideoArchiveTests.swift */; };
 		55A6E141DB20CB3EDAE86E14 /* VideoThumbnailStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F7A9BDF19F8AE23AA36CCD2 /* VideoThumbnailStore.swift */; };
@@ -54,6 +56,7 @@
 		798F8FB0E32E1207F8CD0932 /* DownloadDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E610642506762E666E5CB4 /* DownloadDiagnostics.swift */; };
 		7B6DD3430C99A25BEB55BE09 /* CloudVideoSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B1F20774A2DDEB66C1AA67E /* CloudVideoSyncTests.swift */; };
 		7C159D3252E7331AE2AF46B2 /* LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE9FFD01CDDA423D11EAF27A /* LibraryStore.swift */; };
+		806BDF2C407632B89D07AF20 /* AppPasscodeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5CACA936CC8679B39B2E4CC /* AppPasscodeUITests.swift */; };
 		822F1EBCA142EF6F08C953C2 /* SelectedVideoFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C74BF5E53CB6423A6DAAB8B5 /* SelectedVideoFileTests.swift */; };
 		8587CAEA2286262619E32782 /* OfflineSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0312C68426BDC46E760560C4 /* OfflineSelection.swift */; };
 		894DA380E7C585F449CCF5B2 /* HLSRelayLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDBD011777AECFE6F115D98A /* HLSRelayLifecycleTests.swift */; };
@@ -142,6 +145,7 @@
 		2447536DA50488B5208EADDC /* CloudVideoMetadataFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVideoMetadataFiles.swift; sourceTree = "<group>"; };
 		244B72B48EC076ED9659BC4C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		24756A67EBC8A157C17A019A /* DownloadBatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadBatchTests.swift; sourceTree = "<group>"; };
+		2BF4469DB7D007967C63A308 /* AppPasscodeLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPasscodeLock.swift; sourceTree = "<group>"; };
 		33DE95A749D33B0D23E0EC11 /* PublicTwitterPlaybackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicTwitterPlaybackTests.swift; sourceTree = "<group>"; };
 		38BBC10DA1BBEE4CBA0DF0A1 /* HLSDownloadRelayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HLSDownloadRelayTests.swift; sourceTree = "<group>"; };
 		3A877683D4A338CB33D91CCC /* CloudVideoCacheEvictionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVideoCacheEvictionTests.swift; sourceTree = "<group>"; };
@@ -199,6 +203,7 @@
 		BCD3F31096647249259AA15F /* VideoStorageSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoStorageSettingsSheet.swift; sourceTree = "<group>"; };
 		BF240476CFEBBD3165070229 /* HLSFileExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HLSFileExporter.swift; sourceTree = "<group>"; };
 		C17CBD5CB3A0DE40B6D08EE0 /* VideoRenameUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRenameUITests.swift; sourceTree = "<group>"; };
+		C5CACA936CC8679B39B2E4CC /* AppPasscodeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPasscodeUITests.swift; sourceTree = "<group>"; };
 		C5F35AE4140C1961B392C265 /* OfflinePlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflinePlayer.swift; sourceTree = "<group>"; };
 		C74BF5E53CB6423A6DAAB8B5 /* SelectedVideoFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectedVideoFileTests.swift; sourceTree = "<group>"; };
 		CDBD011777AECFE6F115D98A /* HLSRelayLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HLSRelayLifecycleTests.swift; sourceTree = "<group>"; };
@@ -206,6 +211,7 @@
 		CF9DF486A80B9B0C2B907CE7 /* BrowserPopupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPopupTests.swift; sourceTree = "<group>"; };
 		D050B82CB6FA5107E7ABA4A0 /* BackgroundHLSStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundHLSStore.swift; sourceTree = "<group>"; };
 		D30675BF7688FA661C65DBE0 /* VYuApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VYuApp.swift; sourceTree = "<group>"; };
+		D5F1222282822F2F669C0B83 /* AppPasscodeLockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPasscodeLockTests.swift; sourceTree = "<group>"; };
 		DCEDFCFFEA01C30D0D86CAEE /* DownloadStartupUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadStartupUITests.swift; sourceTree = "<group>"; };
 		DFB494976C80F71346732612 /* VYuTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = VYuTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DFFEA5C1937133EBD30D42E6 /* VideoMetadataStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoMetadataStoreTests.swift; sourceTree = "<group>"; };
@@ -283,6 +289,7 @@
 		6A86AA4DFC9899924230143B /* UITests */ = {
 			isa = PBXGroup;
 			children = (
+				C5CACA936CC8679B39B2E4CC /* AppPasscodeUITests.swift */,
 				11D1399F82CC356B2EED8D72 /* BrowserPopupUITests.swift */,
 				DCEDFCFFEA01C30D0D86CAEE /* DownloadStartupUITests.swift */,
 				1CA16A0A1073CF95058862B5 /* HistoryUITests.swift */,
@@ -337,6 +344,7 @@
 		A5C235F6A82B7B67B3847B31 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				D5F1222282822F2F669C0B83 /* AppPasscodeLockTests.swift */,
 				F2EB5CE9240BF22B533E8E86 /* BackgroundHLSStartupTests.swift */,
 				B567F436DB19834E3ABAF5EE /* BrowserNavigationTests.swift */,
 				CF9DF486A80B9B0C2B907CE7 /* BrowserPopupTests.swift */,
@@ -403,6 +411,7 @@
 		F8437670149E1EA0D170EBE0 /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				2BF4469DB7D007967C63A308 /* AppPasscodeLock.swift */,
 				6BAB7A59D9EE536E8FCC170C /* BrowserPopupSheet.swift */,
 				7112CB91FD28FA71B2AEADE1 /* CandidateSheet.swift */,
 				AC585B514BA63902AEFCDA41 /* ContentView.swift */,
@@ -538,6 +547,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				50AD672BDB2853FD888B51EB /* AppPasscodeLockTests.swift in Sources */,
 				B72E1B163D2BA0EAA0C765BE /* BackgroundHLSStartupTests.swift in Sources */,
 				3AFFAB1F1734BF7FD490BCB3 /* BrowserNavigationTests.swift in Sources */,
 				6CE0EAB394D2BD128B8A0BF0 /* BrowserPopupTests.swift in Sources */,
@@ -588,6 +598,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				806BDF2C407632B89D07AF20 /* AppPasscodeUITests.swift in Sources */,
 				56EF4C2AD9D1F309B5DDE9FF /* BrowserPopupUITests.swift in Sources */,
 				FA61AD7BE5CBA3259AB62436 /* DownloadStartupUITests.swift in Sources */,
 				4288FD84DFB22A35E92E2F1E /* HistoryUITests.swift in Sources */,
@@ -605,6 +616,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0FC35D2F7D90CE2A0420F90A /* AppPasscodeLock.swift in Sources */,
 				5DAEC0D1916E3A56912BC3B8 /* BackgroundHLSStore.swift in Sources */,
 				126E3FFF9F28C1A857A1C9EC /* BrowserFileDownload.swift in Sources */,
 				2DA7284F59EE58F8B47BA118 /* BrowserModel.swift in Sources */,
@@ -769,7 +781,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "$(VYU_SIGNING_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 22;
+				CURRENT_PROJECT_VERSION = 23;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -866,7 +878,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "$(VYU_SIGNING_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 22;
+				CURRENT_PROJECT_VERSION = 23;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

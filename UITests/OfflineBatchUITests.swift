@@ -55,6 +55,7 @@ final class OfflineBatchUITests: XCTestCase {
         XCUIDevice.shared.press(.home)
         XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
         app.activate()
+        app.unlockApp()
         waitForValue(containing: "active=true;idle=true", of: activityProbe)
         XCTAssertGreaterThan(inactiveResetCount(in: app), inactiveResets,
                              "Leaving the foreground must restore the actual system idle timer.")
@@ -220,7 +221,7 @@ final class OfflineBatchUITests: XCTestCase {
                                "--fixture-url", "http://127.0.0.1:8765/" + (seedBatch ? "batch" : "direct")]
         if seedBatch { app.launchArguments += ["--fixture-offline-batch", "--fixture-observe-idle-timer"] }
         launchedApp = app
-        app.launch()
+        app.launchAndUnlock()
         return app
     }
 

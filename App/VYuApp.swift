@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     @StateObject private var videoMetadata: VideoMetadataStore
     @StateObject private var storage: VideoStorageOptimizer
     @StateObject private var downloadIdleTimer = DownloadIdleTimerController()
+    @StateObject private var passcodeLock = AppPasscodeLock()
     @Environment(\.scenePhase) private var scenePhase
     #if DEBUG
     private let offlineBatchFixtureURL: URL?
@@ -67,6 +68,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         WindowGroup {
             ContentView(browser: browser, downloads: downloads, library: library, cloud: cloud,
                         videoMetadata: videoMetadata, storage: storage)
+                .background(AppPasscodeWindowAnchor(lock: passcodeLock))
                 .tint(Color(red: 0.14, green: 0.37, blue: 0.27))
                 .task {
                     downloads.setAppInBackground(scenePhase == .background)

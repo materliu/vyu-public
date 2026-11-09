@@ -113,6 +113,7 @@ final class DownloadStartupUITests: XCTestCase {
         XCUIDevice.shared.press(.home)
         XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
         app.activate()
+        app.unlockApp()
         XCTAssertTrue(app.tabBars.buttons["离线"].waitForExistence(timeout: 10))
         waitForValue(containing: "active=false;idle=false", of: app.staticTexts["downloadActivityProbe"])
         XCTAssertGreaterThan(inactiveResetCount(in: app), inactiveResets)
@@ -136,13 +137,13 @@ final class DownloadStartupUITests: XCTestCase {
             app.launchArguments += ["--fixture-url", "http://127.0.0.1:8765/batch", "--fixture-offline-batch"]
         }
         launchedApp = app
-        app.launch()
+        app.launchAndUnlock()
         return app
     }
 
     private func relaunch(_ app: XCUIApplication, fixtureID: String) {
         app.launchArguments = ["--fixture-cloud-sync", fixtureID, "--fixture-observe-idle-timer"]
-        app.launch()
+        app.launchAndUnlock()
     }
 
     private func openOfflineLibrary(_ app: XCUIApplication, seeded: Bool = false) {

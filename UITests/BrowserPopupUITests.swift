@@ -47,7 +47,7 @@ final class BrowserPopupUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--fixture-cloud-sync", UUID().uuidString,
                                "--fixture-url", "http://127.0.0.1:8765/popup-parent"]
-        app.launch()
+        app.launchAndUnlock()
         return app
     }
 

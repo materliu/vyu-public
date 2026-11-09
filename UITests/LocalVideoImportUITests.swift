@@ -5,7 +5,7 @@ final class LocalVideoImportUITests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--fixture-cloud-sync", UUID().uuidString]
-        app.launch()
+        app.launchAndUnlock()
         app.tabBars.buttons["离线"].tap()
         let open = app.buttons["importOfflineVideo"]
         XCTAssertTrue(open.waitForExistence(timeout: 10))

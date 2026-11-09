@@ -7,7 +7,7 @@ final class VideoCoverUITests: XCTestCase {
         let fixtureID = UUID().uuidString
         app.launchArguments = ["--fixture-cloud-sync", fixtureID,
                                "--fixture-url", "http://127.0.0.1:8765/cover-timeline"]
-        app.launch()
+        app.launchAndUnlock()
         defer { app.terminate() }
         let inline = app.webViews.buttons["下载此视频"]
         XCTAssertTrue(inline.waitForExistence(timeout: 20))
@@ -47,7 +47,7 @@ final class VideoCoverUITests: XCTestCase {
         app.terminate()
 
         app.launchArguments = ["--fixture-cloud-sync", fixtureID]
-        app.launch()
+        app.launchAndUnlock()
         app.tabBars.buttons["离线"].tap()
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         waitForCustomCover(row)
@@ -58,7 +58,7 @@ final class VideoCoverUITests: XCTestCase {
         expectation(for: NSPredicate(format: "NOT (value CONTAINS %@)", "自选封面"), evaluatedWith: row)
         waitForExpectations(timeout: 10)
         app.terminate()
-        app.launch()
+        app.launchAndUnlock()
         app.tabBars.buttons["离线"].tap()
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         XCTAssertFalse((row.value as? String)?.contains("自选封面") == true)

@@ -107,7 +107,7 @@ final class HistoryUITests: XCTestCase {
     private func launch(_ app: XCUIApplication, fixtureID: String, page: String? = nil) {
         app.launchArguments = ["--fixture-cloud-sync", fixtureID]
         if let page { app.launchArguments += ["--fixture-url", "http://127.0.0.1:8765/\(page)"] }
-        app.launch()
+        app.launchAndUnlock()
     }
 
     private func waitForPage(_ title: String, in app: XCUIApplication) {

@@ -8,7 +8,7 @@ final class VideoStorageUITests: XCTestCase {
         // The tiny budget is honored only in DEBUG inside this dedicated fixture library.
         app.launchArguments = ["--fixture-cloud-sync", fixtureID, "--fixture-storage-budget", "1",
                                "--fixture-url", "http://127.0.0.1:8765/direct"]
-        app.launch()
+        app.launchAndUnlock()
         defer { app.terminate() }
         let download = app.webViews.buttons["下载此视频"]
         XCTAssertTrue(download.waitForExistence(timeout: 20))
@@ -65,7 +65,7 @@ final class VideoStorageUITests: XCTestCase {
         let fixtureID = UUID().uuidString
         app.launchArguments = ["--fixture-cloud-sync", fixtureID,
                                "--fixture-url", "http://127.0.0.1:8765/direct"]
-        app.launch()
+        app.launchAndUnlock()
         defer { app.terminate() }
         let download = app.webViews.buttons["下载此视频"]
         XCTAssertTrue(download.waitForExistence(timeout: 20))
@@ -97,7 +97,7 @@ final class VideoStorageUITests: XCTestCase {
         app.terminate()
 
         app.launchArguments = ["--fixture-cloud-sync", fixtureID]
-        app.launch()
+        app.launchAndUnlock()
         app.tabBars.buttons["离线"].tap()
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         openStorageSettings(app)
@@ -106,7 +106,7 @@ final class VideoStorageUITests: XCTestCase {
         waitForToggle(toggle, value: "0")
         app.buttons["closeStorageSettings"].tap()
         app.terminate()
-        app.launch()
+        app.launchAndUnlock()
         app.tabBars.buttons["离线"].tap()
         openStorageSettings(app)
         XCTAssertEqual(toggle.value as? String, "0", "Disabling optimization must also survive restarting the app.")

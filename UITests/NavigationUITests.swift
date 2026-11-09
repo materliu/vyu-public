@@ -55,7 +55,7 @@ final class NavigationUITests: XCTestCase {
     private func launch(url: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--fixture-cloud-sync", UUID().uuidString, "--fixture-url", url]
-        app.launch()
+        app.launchAndUnlock()
         return app
     }
 

@@ -44,7 +44,7 @@ final class VideoRenameUITests: XCTestCase {
 
         app.terminate()
         app.launchArguments = ["--fixture-cloud-sync", fixtureID]
-        app.launch()
+        app.launchAndUnlock()
         app.tabBars.buttons["离线"].tap()
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         waitForLabel("Swipe Meadow", on: row)
@@ -90,7 +90,7 @@ final class VideoRenameUITests: XCTestCase {
 
         app.terminate()
         app.launchArguments = ["--fixture-cloud-sync", fixtureID]
-        app.launch()
+        app.launchAndUnlock()
         app.tabBars.buttons["离线"].tap()
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         waitForLabel("Swipe Cloud Meadow", on: row)
@@ -165,7 +165,7 @@ final class VideoRenameUITests: XCTestCase {
 
         app.terminate()
         app.launchArguments = ["--fixture-cloud-sync", fixtureID]
-        app.launch()
+        app.launchAndUnlock()
         app.tabBars.buttons["离线"].tap()
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         XCTAssertEqual(row.label, "Meadow Morning")
@@ -281,7 +281,7 @@ final class VideoRenameUITests: XCTestCase {
 
         app.terminate()
         app.launchArguments = ["--fixture-cloud-sync", fixtureID]
-        app.launch()
+        app.launchAndUnlock()
         app.tabBars.buttons["离线"].tap()
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         XCTAssertEqual(row.label, longTitle)
@@ -299,7 +299,7 @@ final class VideoRenameUITests: XCTestCase {
         app.launchArguments = ["--fixture-cloud-sync", fixtureID, "--fixture-url",
                                "http://127.0.0.1:8765/" + (seedBatch ? "batch" : "direct")]
         if seedBatch { app.launchArguments += ["--fixture-offline-batch"] }
-        app.launch()
+        app.launchAndUnlock()
         return app
     }
 

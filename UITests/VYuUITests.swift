@@ -7,7 +7,7 @@ final class VYuUITests: XCTestCase {
         let fixtureID = UUID().uuidString
         app.launchArguments = ["--fixture-cloud-sync", fixtureID,
                                "--fixture-url", "http://127.0.0.1:8765/video-card-titles"]
-        app.launch()
+        app.launchAndUnlock()
         defer { app.terminate() }
         let inlineButtons = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "下载此视频"))
         XCTAssertTrue(inlineButtons.element(boundBy: 1).waitForExistence(timeout: 20))
@@ -75,7 +75,7 @@ final class VYuUITests: XCTestCase {
         app.terminate()
 
         app.launchArguments = ["--fixture-cloud-sync", fixtureID]
-        app.launch()
+        app.launchAndUnlock()
         app.tabBars.buttons["离线"].tap()
         app.segmentedControls["offlineVideoFilter"].buttons["已收藏"].tap()
         XCTAssertTrue(video.waitForExistence(timeout: 10))
@@ -93,7 +93,7 @@ final class VYuUITests: XCTestCase {
         let fixtureID = UUID().uuidString
         app.launchArguments = ["--fixture-cloud-sync", fixtureID,
                                "--fixture-url", "http://127.0.0.1:8765/direct"]
-        app.launch()
+        app.launchAndUnlock()
         defer { app.terminate() }
         let inline = app.webViews.buttons["下载此视频"]
         XCTAssertTrue(inline.waitForExistence(timeout: 20)); inline.tap()
@@ -129,7 +129,7 @@ final class VYuUITests: XCTestCase {
         screenshot.lifetime = .keepAlways; add(screenshot)
         app.terminate()
         app.launchArguments = ["--fixture-cloud-sync", fixtureID]
-        app.launch()
+        app.launchAndUnlock()
         app.tabBars.buttons["离线"].tap()
         app.segmentedControls["offlineVideoFilter"].buttons["已收藏"].tap()
         XCTAssertTrue(cloudVideo.waitForExistence(timeout: 15))
@@ -145,7 +145,7 @@ final class VYuUITests: XCTestCase {
         let fixtureID = UUID().uuidString
         app.launchArguments = ["--fixture-cloud-sync", fixtureID,
                                "--fixture-url", "http://127.0.0.1:8765/video-card-titles"]
-        app.launch()
+        app.launchAndUnlock()
         defer { app.terminate() }
         let buttons = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "下载此视频"))
         let second = buttons.element(boundBy: 1)
@@ -165,7 +165,7 @@ final class VYuUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["晨光中的山间步道"].exists)
         app.terminate()
         app.launchArguments = ["--fixture-cloud-sync", fixtureID]
-        app.launch()
+        app.launchAndUnlock()
         app.tabBars.buttons["离线"].tap()
         XCTAssertTrue(row.waitForExistence(timeout: 20))
         XCTAssertEqual(row.label, "雨后花园里的小路")
@@ -181,7 +181,7 @@ final class VYuUITests: XCTestCase {
             let fixtureID = UUID().uuidString
             app.launchArguments = ["--fixture-cloud-sync", fixtureID,
                                    "--fixture-url", "http://127.0.0.1:8765/video-card-inline-" + format]
-            app.launch()
+            app.launchAndUnlock()
             let inline = app.webViews.buttons["下载此视频"]
             XCTAssertTrue(inline.waitForExistence(timeout: 20))
             for _ in 0..<4 where !inline.isHittable { app.webViews.firstMatch.swipeUp() }
@@ -192,7 +192,7 @@ final class VYuUITests: XCTestCase {
             XCTAssertEqual(row.label, "林间 散步 的记录", format)
             app.terminate()
             app.launchArguments = ["--fixture-cloud-sync", fixtureID]
-            app.launch()
+            app.launchAndUnlock()
             app.tabBars.buttons["离线"].tap()
             XCTAssertTrue(row.waitForExistence(timeout: 20))
             XCTAssertEqual(row.label, "林间 散步 的记录", format)
@@ -208,7 +208,7 @@ final class VYuUITests: XCTestCase {
             let fixtureID = UUID().uuidString
             app.launchArguments = ["--fixture-cloud-sync", fixtureID,
                                    "--fixture-url", "http://127.0.0.1:8765/video-card-generic-" + format]
-            app.launch()
+            app.launchAndUnlock()
             let update = app.webViews.buttons["更新标题"]
             XCTAssertTrue(update.waitForExistence(timeout: 20))
             for _ in 0..<5 where !update.isHittable { app.webViews.firstMatch.swipeUp() }
@@ -227,7 +227,7 @@ final class VYuUITests: XCTestCase {
             XCTAssertEqual(app.buttons.matching(identifier: "offlineVideoRow").count, 1)
             app.terminate()
             app.launchArguments = ["--fixture-cloud-sync", fixtureID]
-            app.launch()
+            app.launchAndUnlock()
             app.tabBars.buttons["离线"].tap()
             XCTAssertTrue(row.waitForExistence(timeout: 20))
             XCTAssertEqual(row.label, "山谷里更新后的步行记录", format)
@@ -240,7 +240,7 @@ final class VYuUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--fixture-cloud-sync", UUID().uuidString,
                                "--fixture-url", "http://127.0.0.1:8765/video-card-title-hls"]
-        app.launch()
+        app.launchAndUnlock()
         defer { app.terminate() }
         let inline = app.webViews.buttons["下载此视频"]
         XCTAssertTrue(inline.waitForExistence(timeout: 20))
@@ -273,7 +273,7 @@ final class VYuUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--fixture-cloud-sync", UUID().uuidString,
                                "--fixture-url", "http://127.0.0.1:8765/hls-alternatives"]
-        app.launch()
+        app.launchAndUnlock()
         let inline = app.webViews.buttons["下载此视频"]
         XCTAssertTrue(inline.waitForExistence(timeout: 20))
         inline.tap()
@@ -312,7 +312,7 @@ final class VYuUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--fixture-cloud-sync", UUID().uuidString,
                                "--fixture-url", "http://127.0.0.1:8765/multiple-videos"]
-        app.launch()
+        app.launchAndUnlock()
         let buttons = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "下载此视频"))
         XCTAssertTrue(buttons.element(boundBy: 1).waitForExistence(timeout: 20))
         let second = buttons.element(boundBy: 1)
@@ -342,7 +342,7 @@ final class VYuUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--fixture-cloud-sync", UUID().uuidString,
                                "--fixture-url", "http://127.0.0.1:8765/browser-session"]
-        app.launch()
+        app.launchAndUnlock()
         let inline = app.webViews.buttons["下载此视频"]
         XCTAssertTrue(inline.waitForExistence(timeout: 20))
         inline.tap()
@@ -367,7 +367,7 @@ final class VYuUITests: XCTestCase {
         let app = XCUIApplication()
         let fixtureID = UUID().uuidString
         app.launchArguments = ["--fixture-cloud-sync", fixtureID, "--fixture-url", "http://127.0.0.1:8765/direct"]
-        app.launch()
+        app.launchAndUnlock()
         XCTAssertTrue(app.buttons["showCandidates"].waitForExistence(timeout: 20))
         app.buttons["showCandidates"].tap()
         XCTAssertTrue(app.buttons["startDownload"].waitForExistence(timeout: 20))
@@ -396,7 +396,7 @@ final class VYuUITests: XCTestCase {
         XCTAssertFalse(cloudRow.exists)
         app.terminate()
         app.launchArguments = ["--fixture-cloud-sync", fixtureID]
-        app.launch()
+        app.launchAndUnlock()
         app.tabBars.buttons["离线"].tap()
         XCTAssertTrue(app.staticTexts["还没有离线视频"].waitForExistence(timeout: 10))
         app.terminate()
@@ -407,7 +407,7 @@ final class VYuUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["VYU_TEST_LIBRARY_ID"] = UUID().uuidString
         app.launchArguments = ["--fixture-url", "http://127.0.0.1:8765/background-hls"]
-        app.launch()
+        app.launchAndUnlock()
         let inline = app.webViews.buttons["下载此视频"]
         XCTAssertTrue(inline.waitForExistence(timeout: 20)); inline.tap()
         XCTAssertTrue(app.staticTexts["downloadToast"].waitForExistence(timeout: 20))
@@ -420,6 +420,7 @@ final class VYuUITests: XCTestCase {
         XCUIDevice.shared.press(.home)
         Thread.sleep(forTimeInterval: 12)
         app.activate()
+        app.unlockApp()
         let video = app.buttons["offlineVideoRow"]
         XCTAssertTrue(video.waitForExistence(timeout: 30))
         XCTAssertEqual(video.value as? String, "127.0.0.1 · 含音轨 · 8 秒")
@@ -432,7 +433,7 @@ final class VYuUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["VYU_TEST_LIBRARY_ID"] = UUID().uuidString
         app.launchArguments = ["--fixture-url", "http://127.0.0.1:8765/slow"]
-        app.launch()
+        app.launchAndUnlock()
         let discover = app.buttons["showCandidates"]
         XCTAssertTrue(discover.waitForExistence(timeout: 20))
         discover.tap()
@@ -451,6 +452,7 @@ final class VYuUITests: XCTestCase {
         // A bounded background interval, while the fixture throttles its response.
         Thread.sleep(forTimeInterval: 9)
         app.activate()
+        app.unlockApp()
         let newestVideo = app.cells.firstMatch.buttons["offlineVideoRow"]
         XCTAssertTrue(newestVideo.waitForExistence(timeout: 10))
         XCTAssertEqual(newestVideo.value as? String, "127.0.0.1 · 含音轨 · 8 秒")
@@ -463,7 +465,7 @@ final class VYuUITests: XCTestCase {
         // This isolated library also uses the local cloud fixture, never an Apple account.
         app.launchEnvironment["VYU_TEST_LIBRARY_ID"] = UUID().uuidString
         app.launchArguments = ["--fixture-url", "http://127.0.0.1:8765/direct"]
-        app.launch()
+        app.launchAndUnlock()
         let discover = app.buttons["showCandidates"]
         XCTAssertTrue(discover.waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts["discoveryStatus"].waitForExistence(timeout: 10))
@@ -485,7 +487,7 @@ final class VYuUITests: XCTestCase {
         app.buttons["closePlayer"].tap()
         app.terminate()
         app.launchArguments = []
-        app.launch()
+        app.launchAndUnlock()
         app.tabBars.buttons["离线"].tap()
         XCTAssertTrue(video.waitForExistence(timeout: 10))
         // A tap on the preview image opens the same player after relaunch.
@@ -513,7 +515,7 @@ final class VYuUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--fixture-cloud-sync", UUID().uuidString,
                                "--fixture-url", "http://127.0.0.1:8765/expired"]
-        app.launch()
+        app.launchAndUnlock()
         defer { app.terminate() }
         let inline = app.webViews.buttons["下载此视频"]
         XCTAssertTrue(inline.waitForExistence(timeout: 20))
@@ -540,7 +542,7 @@ final class VYuUITests: XCTestCase {
             let app = XCUIApplication()
             app.launchArguments = ["--fixture-cloud-sync", UUID().uuidString,
                                    "--fixture-url", "http://127.0.0.1:8765/" + route]
-            app.launch()
+            app.launchAndUnlock()
             let inline = app.webViews.buttons["下载此视频"]
             XCTAssertTrue(inline.waitForExistence(timeout: 20), route)
             for _ in 0..<3 where !inline.isHittable { app.webViews.firstMatch.swipeUp() }
