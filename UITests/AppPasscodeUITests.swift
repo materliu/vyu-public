@@ -18,6 +18,22 @@ extension XCUIApplication {
 }
 
 final class AppPasscodeUITests: XCTestCase {
+    func testColdLaunchRemainsRunningWhileWaitingForPasscode() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--fixture-cloud-sync", UUID().uuidString]
+        defer { app.terminate() }
+        for _ in 0..<3 {
+            app.launch()
+            XCTAssertTrue(app.buttons["appPasscodeDigit6"].waitForExistence(timeout: 10))
+            XCTAssertFalse(app.wait(for: .notRunning, timeout: 5))
+            XCTAssertEqual(app.state, .runningForeground)
+            app.unlockApp()
+            XCTAssertTrue(app.tabBars.buttons["浏览"].isHittable)
+            app.terminate()
+        }
+    }
+
     func testColdLaunchWrongPasscodeDeleteAndRelaunch() {
         continueAfterFailure = false
         let app = XCUIApplication()

@@ -112,7 +112,14 @@ struct AppPasscodeWindowAnchor: UIViewRepresentable {
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            if let window { lock.attach(to: window) }
+            // SwiftUI mounts this anchor during a view update. Creating a hosting
+            // controller and publishing lock state here reenters that update.
+            // Wait until mounting finishes, and ignore stale window attachments.
+            guard let window else { return }
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self, let window, self.window === window else { return }
+                self.lock.attach(to: window)
+            }
         }
     }
 }
