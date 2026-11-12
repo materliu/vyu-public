@@ -302,7 +302,11 @@ final class BackgroundHLSStore {
         guard value.isRegularFile == true, value.isSymbolicLink != true, bytes > 0, bytes <= 64 * 1024 * 1024 else { throw DownloadIssue.incompleteMedia }
         let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }
         var hash = SHA256()
-        while let chunk = try handle.read(upToCount: 65536), !chunk.isEmpty { hash.update(data: chunk) }
+        while try autoreleasepool(invoking: {
+            guard let chunk = try handle.read(upToCount: 65536), !chunk.isEmpty else { return false }
+            hash.update(data: chunk)
+            return true
+        }) {}
         return Receipt(bytes: bytes, digest: hash.finalize().map { String(format: "%02x", $0) }.joined())
     }
     fileprivate func eventsFinished(_ identifier: String) { onEventsFinished?(identifier) }

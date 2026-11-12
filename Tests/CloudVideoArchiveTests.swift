@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 @testable import VYu
 
 final class CloudVideoArchiveTests: XCTestCase {
@@ -42,6 +43,39 @@ final class CloudVideoArchiveTests: XCTestCase {
         XCTAssertEqual(manifest.byteCount, Int64(bytes.count))
         XCTAssertEqual(try Data(contentsOf: CloudVideoArchive.verifyMedia(at: package, manifest: manifest)), bytes)
         XCTAssertNil(try CloudVideoArchive.thumbnailData(at: package))
+    }
+
+    func testRepeatedLargeFileVerificationKeepsChunkMemoryBounded() throws {
+        let media = root.appendingPathComponent("large.mp4")
+        XCTAssertTrue(FileManager.default.createFile(atPath: media.path, contents: nil))
+        let handle = try FileHandle(forWritingTo: media)
+        try handle.truncate(atOffset: 128 * 1_024 * 1_024)
+        try handle.close()
+        let manifest = CloudVideoManifest(schemaVersion: 1, id: UUID(), title: "memory fixture",
+            sourceHost: nil, createdAt: Date(), duration: 1, hasAudio: false, fileExtension: "mp4",
+            byteCount: 128 * 1_024 * 1_024, sha256: "254bcc3fc4f27172636df4bf32de9f107f620d559b20d760197e452b97453917")
+
+        // Keep one outer pool, as in a background upload/verification task.
+        // Without per-chunk draining, three passes retain about 384 MiB.
+        try autoreleasepool {
+            let before = try memoryFootprint()
+            for _ in 0..<3 { try CloudVideoArchive.verifyMediaFile(at: media, manifest: manifest) }
+            let after = try memoryFootprint()
+            XCTAssertLessThan(after > before ? after - before : 0, 64 * 1_024 * 1_024,
+                              "Hash verification must not retain every file chunk until the task ends.")
+        }
+    }
+
+    private func memoryFootprint() throws -> UInt64 {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let status = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard status == KERN_SUCCESS else { throw NSError(domain: NSMachErrorDomain, code: Int(status)) }
+        return info.phys_footprint
     }
 
     func testTamperedOrTruncatedMediaDoesNotVerify() throws {

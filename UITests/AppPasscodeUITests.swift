@@ -30,6 +30,8 @@ final class AppPasscodeUITests: XCTestCase {
             XCTAssertEqual(app.state, .runningForeground)
             app.unlockApp()
             XCTAssertTrue(app.tabBars.buttons["浏览"].isHittable)
+            XCTAssertFalse(app.wait(for: .notRunning, timeout: 10), "The app must stay running after unlocking.")
+            XCTAssertEqual(app.state, .runningForeground)
             app.terminate()
         }
     }

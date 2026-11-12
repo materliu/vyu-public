@@ -188,11 +188,15 @@ enum CloudVideoArchive {
         defer { try? handle.close() }
         var hasher = SHA256()
         var bytes: Int64 = 0
-        while let data = try handle.read(upToCount: 1_024 * 1_024), !data.isEmpty {
+        // FileHandle bridges through autoreleased NSData. A background task may
+        // have no pool boundary until the entire video (or several copies) is hashed.
+        while try autoreleasepool(invoking: {
+            guard let data = try handle.read(upToCount: 1_024 * 1_024), !data.isEmpty else { return false }
             guard bytes <= Int64.max - Int64(data.count) else { throw CloudVideoArchiveError.invalidMedia }
             bytes += Int64(data.count)
             hasher.update(data: data)
-        }
+            return true
+        }) {}
         guard bytes > 0 else { throw CloudVideoArchiveError.invalidMedia }
         return (bytes, hasher.finalize().map { String(format: "%02x", $0) }.joined())
     }
