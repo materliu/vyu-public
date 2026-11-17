@@ -82,6 +82,7 @@ final class BrowserPopup: NSObject, ObservableObject, Identifiable {
         guard !isClosed else { return }
         isClosed = true
         invalidateNavigation()
+        webView.setAllMediaPlaybackSuspended(true, completionHandler: nil)
         webView.stopLoading()
         onClose()
     }

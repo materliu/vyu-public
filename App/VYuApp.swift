@@ -16,7 +16,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     @StateObject private var videoMetadata: VideoMetadataStore
     @StateObject private var storage: VideoStorageOptimizer
     @StateObject private var downloadIdleTimer = DownloadIdleTimerController()
-    @StateObject private var passcodeLock = AppPasscodeLock()
+    @StateObject private var passcodeLock: AppPasscodeLock
     @Environment(\.scenePhase) private var scenePhase
     #if DEBUG
     private let offlineBatchFixtureURL: URL?
@@ -44,6 +44,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             ? OfflineBatchFixture.baseURL(fixtureAddress) : nil
         observesDownloadActivity = fixtureRoot != nil && arguments.contains("--fixture-observe-idle-timer")
         #endif
+        #if DEBUG
+        // Synthetic libraries use a public fixture phrase, never the installation's phrase.
+        _passcodeLock = StateObject(wrappedValue: AppPasscodeLock(phraseDigest: fixtureRoot == nil ? nil : "ab07f3900933cba3ffbc844ac30b5da3af6178fa897bdde42fd2593f2748c670"))
+        #else
+        _passcodeLock = StateObject(wrappedValue: AppPasscodeLock())
+        #endif
         let downloads = DownloadManager(rootDirectory: fixtureRoot, initiallyInBackground: UIApplication.shared.applicationState != .active)
         let videoMetadata = VideoMetadataStore(rootDirectory: downloads.rootDirectory)
         var storageBudget: Int64 = 1_000_000_000
@@ -66,11 +72,24 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     }
     var body: some Scene {
         WindowGroup {
-            ContentView(browser: browser, downloads: downloads, library: library, cloud: cloud,
-                        videoMetadata: videoMetadata, storage: storage)
+            Group {
+                if passcodeLock.isUnlocked {
+                    ContentView(browser: browser, downloads: downloads, library: library, cloud: cloud,
+                                videoMetadata: videoMetadata, storage: storage,
+                                hideContent: passcodeLock.hideContent,
+                                contentIsUnlocked: { passcodeLock.isUnlocked })
+                } else {
+                    Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
+                }
+            }
                 .background(AppPasscodeWindowAnchor(lock: passcodeLock))
                 .tint(Color(red: 0.14, green: 0.37, blue: 0.27))
                 .task {
+                    passcodeLock.visibilityChanged = { visible in
+                        browser.setContentVisible(visible)
+                        if !visible { cloud.cancelPendingPlayback(); cloud.readyToPlay = nil }
+                    }
+                    browser.setContentVisible(passcodeLock.isUnlocked && passcodeLock.isActive)
                     downloads.setAppInBackground(scenePhase == .background)
                     storage.setAppActive(scenePhase == .active)
                     cloud.setAppActive(scenePhase == .active)

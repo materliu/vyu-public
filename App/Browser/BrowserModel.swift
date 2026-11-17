@@ -39,6 +39,7 @@ final class BrowserModel: NSObject, ObservableObject {
     }
     @Published private(set) var alternateSources: [AlternateSourceKey: [MediaCandidate]] = [:]
 
+    private var contentVisible = true
     let webView: WKWebView
     private var navigationToken = UUID().uuidString
     private var committedPageURL: URL?
@@ -60,6 +61,7 @@ final class BrowserModel: NSObject, ObservableObject {
         self.navigationTimeout = navigationTimeout
         let configuration = WKWebViewConfiguration()
         configuration.allowsInlineMediaPlayback = true
+        configuration.allowsPictureInPictureMediaPlayback = false
         configuration.mediaTypesRequiringUserActionForPlayback = []
         // Keep WebKit's system/engine UA and add the mobile Safari compatibility
         // token. Without it, X redirects embedded views to an external-only scheme.
@@ -98,6 +100,13 @@ final class BrowserModel: NSObject, ObservableObject {
         requestedURL = destination
         loadError = nil
         webView.load(URLRequest(url: destination))
+    }
+
+    func setContentVisible(_ visible: Bool) {
+        guard contentVisible != visible else { return }
+        contentVisible = visible
+        webView.setAllMediaPlaybackSuspended(!visible, completionHandler: nil)
+        if !visible { closePopup() }
     }
 
     func closePopup() {
@@ -594,7 +603,7 @@ extension BrowserModel: WKNavigationDelegate {
 extension BrowserModel: WKUIDelegate {
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        guard webView === self.webView, navigationAction.targetFrame == nil,
+        guard contentVisible, webView === self.webView, navigationAction.targetFrame == nil,
               popup == nil, hasCurrentDocument,
               BrowserPopup.allowsNavigation(navigationAction.request.url) else { return nil }
         let origin = navigationAction.sourceFrame.securityOrigin

@@ -61,6 +61,8 @@ struct ContentView: View {
     @ObservedObject var cloud: CloudVideoSync
     @ObservedObject var videoMetadata: VideoMetadataStore
     @ObservedObject var storage: VideoStorageOptimizer
+    var hideContent: () -> Void = {}
+    var contentIsUnlocked: () -> Bool = { true }
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var tab = 0
@@ -189,6 +191,17 @@ struct ContentView: View {
                     watchedDownloads.removeValue(forKey: record.id)
                 }
             }
+        }
+        .onDisappear {
+            // Full-screen playback also hides this view. Release its files only
+            // when the authorized content tree itself is being removed.
+            guard !contentIsUnlocked() else { return }
+            if let token = playerLease { downloads.endUsingLocalVideo(token); playerLease = nil }
+            if let token = coverLease { downloads.endUsingLocalVideo(token); coverLease = nil }
+            cloud.cancelPendingPlayback()
+            cloud.readyToPlay = nil
+            browser.closePopup()
+            toastTask?.cancel()
         }
         .onChange(of: browser.documentID) { _, _ in candidatePresentation = nil }
     }
@@ -371,6 +384,7 @@ struct ContentView: View {
         .navigationTitle("V语")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { hideContentButton }
             ToolbarItem(placement: .topBarLeading) {
                 HistoryButton(library: library, browser: browser, iconOnly: true, openPage: openHistoryPage)
             }
@@ -407,12 +421,18 @@ struct ContentView: View {
         }
     }
 
+    private var hideContentButton: some View {
+        Button("隐藏内容", systemImage: "eye.slash", action: hideContent)
+            .accessibilityIdentifier("hideContent")
+    }
+
     private var favoritesPage: some View {
         Group {
             if library.favorites.isEmpty { ContentUnavailableView("还没有收藏", systemImage: "bookmark", description: Text("浏览时点收藏，下次从这里打开原网页。")) }
             else { List(library.favorites) { page in pageRow(page).swipeActions { Button("取消收藏", role: .destructive) { library.toggleFavorite(url: page.url, title: page.title) } } } }
         }.frame(maxWidth: 1000).frame(maxWidth: .infinity)
             .background(canvas).navigationTitle("收藏")
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { hideContentButton } }
     }
 
     private func pageRow(_ page: SavedPage) -> some View {
@@ -492,6 +512,7 @@ struct ContentView: View {
         }.frame(maxWidth: 1000).frame(maxWidth: .infinity)
             .background(canvas).navigationTitle("离线")
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { hideContentButton }
                 ToolbarItem(placement: .topBarLeading) {
                     Button(offlineSelection.isActive ? "完成" : "选择") {
                         if offlineSelection.isActive { offlineSelection.end() }

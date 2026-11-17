@@ -3,54 +3,84 @@ import XCTest
 
 @MainActor
 final class AppPasscodeLockTests: XCTestCase {
-    func testOnlyCompleteFixedPasscodeUnlocksAndInputIsCleared() {
-        let lock = AppPasscodeLock()
-        lock.sceneChanged(to: .foregroundActive)
-        for digit in [6, 5, 4, 3, 2] { lock.enter(digit) }
-        XCTAssertFalse(lock.isUnlocked)
-        XCTAssertEqual(lock.digits, "65432")
-        lock.enter(1)
-        XCTAssertTrue(lock.isUnlocked)
-        XCTAssertEqual(lock.digits, "")
-        lock.enter(9)
-        XCTAssertEqual(lock.digits, "")
-        XCTAssertFalse(AppPasscodeLock().isUnlocked, "Unlocking must not survive a fresh app session.")
+    private func makeLock() -> AppPasscodeLock {
+        AppPasscodeLock(phraseDigest: "ab07f3900933cba3ffbc844ac30b5da3af6178fa897bdde42fd2593f2748c670")
     }
 
-    func testWrongPasscodeClearsAndDeleteAllowsCorrection() {
-        let lock = AppPasscodeLock()
+    func testUnconfiguredInstallationNeverAcceptsInput() {
+        let lock = AppPasscodeLock(phraseDigest: "")
         lock.sceneChanged(to: .foregroundActive)
-        for _ in 0..<6 { lock.enter(0) }
+        lock.showPrompt()
+        lock.submit("")
+        lock.submit("fixture-access")
+        XCTAssertFalse(lock.isUnlocked)
+    }
+
+    func testPhraseRequiresExplicitPromptAndClearsPromptAfterUnlock() {
+        let lock = makeLock()
+        lock.sceneChanged(to: .foregroundActive)
+        lock.submit("fixture-access")
+        XCTAssertFalse(lock.isUnlocked)
+        lock.showPrompt()
+        lock.submit("654321")
         XCTAssertFalse(lock.isUnlocked)
         XCTAssertTrue(lock.hasError)
-        XCTAssertEqual(lock.digits, "")
-        lock.enter(-1)
-        lock.enter(10)
-        XCTAssertEqual(lock.digits, "")
-        lock.enter(6)
-        XCTAssertFalse(lock.hasError)
-        lock.enter(0)
-        lock.deleteLastDigit()
-        XCTAssertEqual(lock.digits, "6")
-        for digit in [5, 4, 3, 2, 1] { lock.enter(digit) }
+        lock.submit("fixture-access")
         XCTAssertTrue(lock.isUnlocked)
+        XCTAssertFalse(lock.isPromptPresented)
+        XCTAssertFalse(lock.hasError)
+        XCTAssertFalse(makeLock().isUnlocked)
     }
 
-    func testInactiveClearsPartialInputAndBackgroundRequiresUnlockAgain() {
-        let lock = AppPasscodeLock()
+    func testCancelAndHideReturnToConcealedSession() {
+        let lock = makeLock()
+        var visibility: [Bool] = []
+        lock.visibilityChanged = { visibility.append($0) }
         lock.sceneChanged(to: .foregroundActive)
-        lock.enter(6)
+        lock.showPrompt()
+        lock.submit("wrong")
+        lock.cancelPrompt()
+        XCTAssertFalse(lock.isPromptPresented)
+        XCTAssertFalse(lock.hasError)
+        lock.showPrompt()
+        lock.submit(" FIXTURE-ACCESS ")
+        XCTAssertTrue(lock.isUnlocked)
+        XCTAssertEqual(visibility.last, true)
+        lock.hideContent()
+        XCTAssertFalse(lock.isUnlocked)
+        XCTAssertEqual(visibility.last, false)
+    }
+
+    func testInactiveCoversContentAndBackgroundRevokesSession() {
+        let lock = makeLock()
+        var visible = false
+        lock.visibilityChanged = { visible = $0 }
+        lock.sceneChanged(to: .foregroundActive)
+        lock.showPrompt()
+        lock.submit("fixture-access")
+        XCTAssertTrue(visible)
         lock.sceneChanged(to: .foregroundInactive)
-        lock.enter(5)
-        XCTAssertEqual(lock.digits, "")
+        XCTAssertFalse(visible)
         lock.sceneChanged(to: .foregroundActive)
-        for digit in [6, 5, 4, 3, 2, 1] { lock.enter(digit) }
-        lock.sceneChanged(to: .foregroundInactive)
-        lock.sceneChanged(to: .foregroundActive)
-        XCTAssertTrue(lock.isUnlocked, "A temporary system interruption is not a background round trip.")
+        XCTAssertTrue(visible)
         lock.sceneChanged(to: .background)
         lock.sceneChanged(to: .foregroundActive)
         XCTAssertFalse(lock.isUnlocked)
-        XCTAssertEqual(lock.digits, "")
+        XCTAssertFalse(visible)
+    }
+
+    func testInactiveCancelsPromptAndRejectsInput() {
+        let lock = makeLock()
+        lock.sceneChanged(to: .foregroundActive)
+        lock.showPrompt()
+        lock.submit(String(repeating: "a", count: 10000))
+        XCTAssertFalse(lock.isUnlocked)
+        lock.sceneChanged(to: .foregroundInactive)
+        XCTAssertFalse(lock.isPromptPresented)
+        XCTAssertFalse(lock.hasError)
+        lock.showPrompt()
+        lock.submit("fixture-access")
+        XCTAssertFalse(lock.isPromptPresented)
+        XCTAssertFalse(lock.isUnlocked)
     }
 }

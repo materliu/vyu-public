@@ -1,45 +1,61 @@
 import SwiftUI
 import UIKit
+import CryptoKit
 
-/// An in-memory app gate. It deliberately does not persist an unlocked session.
+/// A session-only content gate. The public surface never receives library data.
 @MainActor
 final class AppPasscodeLock: ObservableObject {
-    @Published private(set) var digits = ""
     @Published private(set) var isUnlocked = false
     @Published private(set) var isActive = false
+    @Published private(set) var isPromptPresented = false
     @Published private(set) var hasError = false
+    var visibilityChanged: ((Bool) -> Void)?
+
+    private let phraseDigest: String
+
+    init(phraseDigest: String? = nil) {
+        self.phraseDigest = phraseDigest ?? Bundle.main.object(forInfoDictionaryKey: "VYuContentPhraseDigest") as? String ?? ""
+    }
 
     private weak var appWindow: UIWindow?
     private var lockWindow: UIWindow?
     private var observers: [NSObjectProtocol] = []
 
-    func enter(_ digit: Int) {
-        guard isActive, !isUnlocked, (0...9).contains(digit), digits.count < 6 else { return }
-        hasError = false
-        digits.append(String(digit))
-        guard digits.count == 6 else { return }
-        if digits == "654321" {
-            isUnlocked = true
-            digits = ""
-            updateWindow()
-        } else {
-            digits = ""
-            hasError = true
-        }
-    }
-
-    func deleteLastDigit() {
+    func showPrompt() {
         guard isActive, !isUnlocked else { return }
         hasError = false
-        if !digits.isEmpty { digits.removeLast() }
+        isPromptPresented = true
+    }
+
+    func cancelPrompt() {
+        isPromptPresented = false
+        hasError = false
+    }
+
+    func submit(_ phrase: String) {
+        guard isActive, !isUnlocked, isPromptPresented else { return }
+        // A fixed local phrase, as requested. Store no entered phrase or unlocked session.
+        let normalized = phrase.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalized.utf8.count <= 64 else { hasError = true; return }
+        let digest = SHA256.hash(data: Data(normalized.utf8)).map { String(format: "%02x", $0) }.joined()
+        guard digest == phraseDigest else {
+            hasError = true
+            return
+        }
+        isUnlocked = true
+        cancelPrompt()
+        updateWindow()
+    }
+
+    func hideContent() {
+        isUnlocked = false
+        cancelPrompt()
+        updateWindow()
     }
 
     func sceneChanged(to state: UIScene.ActivationState) {
         isActive = state == .foregroundActive
-        if !isActive {
-            digits = ""
-            hasError = false
-        }
+        if !isActive { cancelPrompt() }
         if state == .background || state == .unattached { isUnlocked = false }
         updateWindow()
     }
@@ -50,7 +66,7 @@ final class AppPasscodeLock: ObservableObject {
         appWindow = window
         let cover = UIWindow(windowScene: scene)
         cover.windowLevel = .alert + 1
-        let host = UIHostingController(rootView: AppPasscodeView(lock: self))
+        let host = UIHostingController(rootView: ConcealedContentView(lock: self))
         host.view.accessibilityViewIsModal = true
         cover.rootViewController = host
         lockWindow = cover
@@ -79,8 +95,9 @@ final class AppPasscodeLock: ObservableObject {
     }
 
     private func updateWindow() {
-        guard let appWindow, let lockWindow else { return }
         let shouldCover = !isUnlocked || !isActive
+        visibilityChanged?(!shouldCover)
+        guard let appWindow, let lockWindow else { return }
         appWindow.accessibilityElementsHidden = shouldCover
         if shouldCover {
             if lockWindow.isHidden {
@@ -124,80 +141,86 @@ struct AppPasscodeWindowAnchor: UIViewRepresentable {
     }
 }
 
-private struct AppPasscodeView: View {
+/// Independent empty pages: no records, cloud state, search suggestions or storage counts.
+private struct ConcealedContentView: View {
     @ObservedObject var lock: AppPasscodeLock
-    private let accent = Color(red: 0.14, green: 0.37, blue: 0.27)
+    @State private var tab = 0
+    private let labels = ["浏览", "收藏", "离线"]
+    private let icons = ["safari", "bookmark", "arrow.down.circle"]
+    private let emptyTitles = ["暂无内容", "暂无收藏", "暂无视频"]
 
     var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(spacing: 24) {
-                    VStack(spacing: 12) {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 28)).foregroundStyle(accent)
-                            .accessibilityHidden(true)
-                        Text("输入密码").font(.title2.weight(.semibold))
-                        Text("输入六位数字密码以打开 V语")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    VStack(spacing: 14) {
-                        HStack(spacing: 18) {
-                            ForEach(0..<6) { index in
-                                Circle()
-                                    .fill(index < lock.digits.count ? accent : Color.clear)
-                                    .frame(width: 13, height: 13)
-                                    .overlay(Circle().strokeBorder(accent, lineWidth: 1.5))
-                            }
-                        }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("密码")
-                        .accessibilityValue("已输入 \(lock.digits.count) 位，共 6 位")
-                        .accessibilityIdentifier("appPasscodeProgress")
-                        Text(lock.hasError ? "密码错误，请重新输入" : " ")
-                            .font(.footnote).foregroundStyle(.red)
-                            .accessibilityIdentifier("appPasscodeError")
-                    }
-                    Grid(horizontalSpacing: 26, verticalSpacing: 14) {
-                        ForEach(0..<3) { row in
-                            GridRow {
-                                ForEach(1..<4) { column in digitButton(row * 3 + column) }
-                            }
-                        }
-                        GridRow {
-                            Color.clear.frame(width: 72, height: 60).accessibilityHidden(true)
-                            digitButton(0)
-                            Button(action: lock.deleteLastDigit) {
-                                Image(systemName: "delete.left")
-                                    .font(.title2).frame(width: 72, height: 60)
+        TabView(selection: $tab) {
+            ForEach(0..<3) { index in
+                NavigationStack {
+                    ContentUnavailableView(emptyTitles[index], systemImage: icons[index])
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color(uiColor: .systemGroupedBackground))
+                        .toolbar {
+                            ToolbarItem(placement: .principal) {
+                                Text("V语").font(.headline)
+                                    .padding(.horizontal, 32).padding(.vertical, 12)
                                     .contentShape(Rectangle())
+                                    .onLongPressGesture(minimumDuration: 2) { lock.showPrompt() }
+                                    .accessibilityAddTraits(.isButton)
+                                    .accessibilityAction(named: Text("输入访问口令")) { lock.showPrompt() }
+                                    .accessibilityIdentifier("concealedTitle")
                             }
-                            .accessibilityLabel("删除一位")
-                            .accessibilityIdentifier("appPasscodeDelete")
                         }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!lock.isActive)
+                        .navigationBarTitleDisplayMode(.inline)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 28)
-                .frame(minHeight: geometry.size.height)
+                .tabItem { Label(labels[index], systemImage: icons[index]) }.tag(index)
             }
-            .scrollIndicators(.hidden)
         }
-        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
-        .tint(accent)
-        .accessibilityIdentifier("appPasscodeLock")
+        .tint(Color(red: 0.14, green: 0.37, blue: 0.27))
+        .accessibilityIdentifier("concealedContent")
+        .sheet(isPresented: Binding(get: { lock.isPromptPresented }, set: { if !$0 { lock.cancelPrompt() } })) {
+            ContentPhraseSheet(lock: lock)
+        }
+        .onChange(of: lock.isUnlocked) { _, _ in tab = 0 }
+    }
+}
+
+private struct ContentPhraseSheet: View {
+    @ObservedObject var lock: AppPasscodeLock
+    @State private var phrase = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                SecureField("输入口令", text: $phrase)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.asciiCapable)
+                    .submitLabel(.go)
+                    .focused($focused)
+                    .accessibilityIdentifier("contentPhraseInput")
+                    .onSubmit(submit)
+                Text(lock.hasError ? "未能打开，请重试" : " ")
+                    .font(.footnote).foregroundStyle(.red)
+                    .accessibilityIdentifier("contentPhraseError")
+            }
+            .padding(24)
+            .navigationTitle("访问口令")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { phrase = ""; lock.cancelPrompt() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("打开", action: submit).disabled(phrase.isEmpty)
+                        .accessibilityIdentifier("submitContentPhrase")
+                }
+            }
+        }
+        .presentationDetents([.height(220)])
+        .onAppear { focused = true }
+        .onDisappear { phrase = "" }
     }
 
-    private func digitButton(_ digit: Int) -> some View {
-        Button { lock.enter(digit) } label: {
-            Text(String(digit))
-                .font(.system(size: 28, weight: .regular, design: .rounded))
-                .frame(width: 72, height: 60)
-                .background(Color(uiColor: .secondarySystemGroupedBackground), in: Capsule())
-                .contentShape(Capsule())
-        }
-        .accessibilityLabel(String(digit))
-        .accessibilityIdentifier("appPasscodeDigit\(digit)")
+    private func submit() {
+        lock.submit(phrase)
+        phrase = ""
     }
 }

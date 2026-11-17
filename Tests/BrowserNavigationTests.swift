@@ -211,6 +211,36 @@ import XCTest
         XCTAssertNil(browser.historyVisit)
     }
 
+    func testConcealingSuspendsPlaybackAndRepeatedLifecycleEventsStayPaired() async throws {
+        let browser = mountBrowser()
+        browser.open(base.appendingPathComponent("direct").absoluteString)
+        try await waitUntil("direct fixture loaded") { browser.hasCurrentDocument && !browser.isLoading }
+        _ = try await browser.webView.evaluateJavaScript("document.querySelector('video').muted = true; document.querySelector('video').play(); true")
+        try await waitForMediaState(.playing, browser: browser)
+        XCTAssertFalse(browser.webView.configuration.allowsPictureInPictureMediaPlayback)
+        browser.setContentVisible(false)
+        browser.setContentVisible(false)
+        try await waitForMediaState(.suspended, browser: browser)
+        browser.setContentVisible(true)
+        browser.setContentVisible(true)
+        // WebKit resumes a previously playing element after the suspension ends.
+        try await waitForMediaState(.playing, browser: browser)
+        browser.setContentVisible(false)
+    }
+
+    private func waitForMediaState(_ expected: WKMediaPlaybackState, browser: BrowserModel) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            let state: WKMediaPlaybackState = await withCheckedContinuation { continuation in
+                browser.webView.requestMediaPlaybackState { continuation.resume(returning: $0) }
+            }
+            if state == expected { return }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTFail("Expected media state \(expected)")
+        throw FixtureFailure.timeout
+    }
+
     private func mountBrowser(navigationTimeout: TimeInterval = 25) -> BrowserModel {
         let browser = BrowserModel(navigationTimeout: navigationTimeout, websiteDataStore: .nonPersistent())
         let controller = UIViewController()

@@ -63,6 +63,8 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>VYuContentPhraseDigest</key>
+	<string>$(VYU_CONTENT_PHRASE_DIGEST)</string>
 	<key>VYuICloudEnabled</key>
 	<string>$(VYU_ICLOUD_ENABLED)</string>
 </dict>

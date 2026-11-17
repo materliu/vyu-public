@@ -9,6 +9,7 @@ import AVKit
     private let position: Double
     private let requiresAudio: Bool
     private var started = false
+    private var playbackAllowed = true
     private var observer: Any?
     private var statusObserver: NSKeyValueObservation?
     init(url: URL, position: Double, requiresAudio: Bool) {
@@ -31,10 +32,11 @@ import AVKit
             player.replaceCurrentItem(with: item)
             if position > 0 { await player.seek(to: CMTime(seconds: position, preferredTimescale: 600)) }
             guard !Task.isCancelled else { return }
-            player.play()
+            if playbackAllowed { player.play() }
         } catch { failed = true }
     }
-    func stop() { player.pause(); if let observer { player.removeTimeObserver(observer); self.observer = nil } }
+    func suspendPlayback() { playbackAllowed = false; player.pause() }
+    func stop() { playbackAllowed = false; player.pause(); if let observer { player.removeTimeObserver(observer); self.observer = nil } }
 }
 
 struct OfflinePlayer: View {
@@ -42,6 +44,7 @@ struct OfflinePlayer: View {
     @ObservedObject var library: LibraryStore
     @StateObject private var model: PlayerModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     init(url: URL, record: DownloadRecord, library: LibraryStore) {
         self.record = record; self.library = library
         let position = library.positions[record.id.uuidString] ?? 0
@@ -61,7 +64,13 @@ struct OfflinePlayer: View {
             VStack { Spacer(); Text(String(format: "播放 %.1f 秒", model.seconds)).font(.caption2).foregroundStyle(.white.opacity(0.7)).accessibilityIdentifier("playbackClock") }.padding(.bottom, 60).allowsHitTesting(false)
             #endif
         }
-        .task { await model.start() }
+        .task {
+            if scenePhase != .active { model.suspendPlayback() }
+            await model.start()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { save(); model.suspendPlayback() }
+        }
         .onChange(of: model.seconds) { _, seconds in if Int(seconds) % 5 == 0 { library.setPosition(seconds, for: record.id) } }
         .onDisappear { save(); model.stop() }
     }
@@ -72,7 +81,9 @@ struct NativePlayer: UIViewControllerRepresentable {
     let player: AVPlayer
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController(); controller.player = player
-        controller.allowsPictureInPicturePlayback = true
+        // Keep playback inside the surface covered by the content gate.
+        controller.allowsPictureInPicturePlayback = false
+        controller.updatesNowPlayingInfoCenter = false
         return controller
     }
     func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {}
