@@ -56,7 +56,8 @@ final class AppPasscodeLock: ObservableObject {
     func sceneChanged(to state: UIScene.ActivationState) {
         isActive = state == .foregroundActive
         if !isActive { cancelPrompt() }
-        if state == .background || state == .unattached { isUnlocked = false }
+        // Backgrounding covers the interface but keeps this process's access session.
+        // A fresh controller starts concealed; no unlocked state is persisted.
         updateWindow()
     }
 

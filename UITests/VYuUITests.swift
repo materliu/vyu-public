@@ -420,7 +420,7 @@ final class VYuUITests: XCTestCase {
         XCUIDevice.shared.press(.home)
         Thread.sleep(forTimeInterval: 12)
         app.activate()
-        app.unlockApp()
+        XCTAssertFalse(app.secureTextFields["contentPhraseInput"].exists)
         let video = app.buttons["offlineVideoRow"]
         XCTAssertTrue(video.waitForExistence(timeout: 30))
         XCTAssertEqual(video.value as? String, "127.0.0.1 · 含音轨 · 8 秒")
@@ -452,7 +452,7 @@ final class VYuUITests: XCTestCase {
         // A bounded background interval, while the fixture throttles its response.
         Thread.sleep(forTimeInterval: 9)
         app.activate()
-        app.unlockApp()
+        XCTAssertFalse(app.secureTextFields["contentPhraseInput"].exists)
         let newestVideo = app.cells.firstMatch.buttons["offlineVideoRow"]
         XCTAssertTrue(newestVideo.waitForExistence(timeout: 10))
         XCTAssertEqual(newestVideo.value as? String, "127.0.0.1 · 含音轨 · 8 秒")

@@ -86,10 +86,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 .tint(Color(red: 0.14, green: 0.37, blue: 0.27))
                 .task {
                     passcodeLock.visibilityChanged = { visible in
-                        browser.setContentVisible(visible)
+                        browser.setContentVisible(visible, preservingPopup: passcodeLock.isUnlocked)
                         if !visible { cloud.cancelPendingPlayback(); cloud.readyToPlay = nil }
                     }
-                    browser.setContentVisible(passcodeLock.isUnlocked && passcodeLock.isActive)
+                    browser.setContentVisible(passcodeLock.isUnlocked && passcodeLock.isActive,
+                                              preservingPopup: passcodeLock.isUnlocked)
                     downloads.setAppInBackground(scenePhase == .background)
                     storage.setAppActive(scenePhase == .active)
                     cloud.setAppActive(scenePhase == .active)

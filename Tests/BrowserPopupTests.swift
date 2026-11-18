@@ -258,6 +258,27 @@ import XCTest
         XCTAssertEqual(state, .suspended)
     }
 
+    func testBackgroundRetainsPopupAndItsMediaSuspensionCanBeResumed() async throws {
+        let browser = try await readyBrowser()
+        try await run("window.open('/direct', 'fixtureRetainedMedia'); void 0", in: browser.webView)
+        let popup = try await mountedPopup(from: browser)
+        try await waitUntil("media popup loaded") { popup.url?.path == "/direct" && !popup.isLoading }
+        try await run("document.querySelector('video').muted = true; document.querySelector('video').play(); void 0", in: popup.webView)
+        try await waitForScript("!document.querySelector('video').paused", in: popup.webView)
+        browser.setContentVisible(false, preservingPopup: true)
+        XCTAssertTrue(browser.popup === popup)
+        let suspended: WKMediaPlaybackState = await withCheckedContinuation { continuation in
+            popup.webView.requestMediaPlaybackState { continuation.resume(returning: $0) }
+        }
+        XCTAssertEqual(suspended, .suspended)
+        browser.setContentVisible(true, preservingPopup: true)
+        XCTAssertTrue(browser.popup === popup)
+        try await waitForScript("!document.querySelector('video').paused", in: popup.webView)
+        browser.setContentVisible(false, preservingPopup: true)
+        browser.setContentVisible(false)
+        XCTAssertNil(browser.popup, "Explicit hiding must close a popup even while already covered.")
+    }
+
     private func readyBrowser() async throws -> BrowserModel {
         let browser = BrowserModel(websiteDataStore: .nonPersistent())
         // Scripted clicks are permitted only in this test's ephemeral web view.

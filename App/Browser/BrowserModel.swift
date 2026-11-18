@@ -102,11 +102,14 @@ final class BrowserModel: NSObject, ObservableObject {
         webView.load(URLRequest(url: destination))
     }
 
-    func setContentVisible(_ visible: Bool) {
+    func setContentVisible(_ visible: Bool, preservingPopup: Bool = false) {
+        // Temporarily covered sessions retain login forms; explicitly hidden
+        // sessions close them, even if playback was already suspended.
+        if !visible && !preservingPopup { closePopup() }
         guard contentVisible != visible else { return }
         contentVisible = visible
         webView.setAllMediaPlaybackSuspended(!visible, completionHandler: nil)
-        if !visible { closePopup() }
+        popup?.webView.setAllMediaPlaybackSuspended(!visible, completionHandler: nil)
     }
 
     func closePopup() {

@@ -56,7 +56,7 @@ final class AppPasscodeUITests: XCTestCase {
         XCTAssertFalse(app.buttons["hideContent"].exists)
     }
 
-    func testBackgroundConcealsPresentedSheetAndRequiresPhraseAgain() {
+    func testBackgroundKeepsUnlockedSheetAndDraft() {
         continueAfterFailure = false
         let app = isolatedApp()
         app.launchAndUnlock()
@@ -68,12 +68,13 @@ final class AppPasscodeUITests: XCTestCase {
         XCUIDevice.shared.press(.home)
         XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
         app.activate()
-        XCTAssertTrue(app.staticTexts["暂无内容"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.textFields["urlInput"].exists)
+        XCTAssertTrue(app.textFields["urlInput"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.textFields["urlInput"].value as? String, "https://example.com")
+        XCTAssertFalse(app.secureTextFields["contentPhraseInput"].exists)
+        XCTAssertFalse(app.staticTexts["暂无内容"].exists)
         XCUIDevice.shared.orientation = .landscapeLeft
-        app.unlockApp()
-        XCTAssertTrue(app.buttons["打开网址"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.textFields["urlInput"].exists)
+        XCTAssertTrue(app.textFields["urlInput"].isHittable)
+        XCTAssertEqual(app.textFields["urlInput"].value as? String, "https://example.com")
     }
 
     func testHideKeepsRealFavoriteButRemovesItFromEmptySurface() {
@@ -98,7 +99,7 @@ final class AppPasscodeUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["直接视频 · 8 秒有声"].waitForExistence(timeout: 5))
     }
 
-    func testBackgroundClosesOfflinePlayerAndKeepsDownloadedVideo() {
+    func testBackgroundKeepsUnlockedPlayerAndDownloadedVideo() {
         continueAfterFailure = false
         let app = isolatedApp()
         app.launchArguments += ["--fixture-url", "http://127.0.0.1:8765/direct", "--fixture-storage-budget", "1"]
@@ -118,15 +119,11 @@ final class AppPasscodeUITests: XCTestCase {
         XCUIDevice.shared.press(.home)
         XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
         app.activate()
-        XCTAssertTrue(app.staticTexts["暂无内容"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.staticTexts["offlinePlaybackLabel"].exists)
-        app.tabBars.buttons["离线"].tap()
-        XCTAssertTrue(app.staticTexts["暂无视频"].exists)
-        XCTAssertFalse(row.exists)
-        app.unlockApp()
-        app.tabBars.buttons["离线"].tap()
+        XCTAssertTrue(app.staticTexts["offlinePlaybackLabel"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["暂无内容"].exists)
+        XCTAssertFalse(app.secureTextFields["contentPhraseInput"].exists)
+        app.buttons["closePlayer"].tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10))
-        XCTAssertFalse(app.staticTexts["offlinePlaybackLabel"].exists)
         row.tap()
         XCTAssertTrue(app.staticTexts["offlinePlaybackLabel"].waitForExistence(timeout: 10))
         app.buttons["closePlayer"].tap()
@@ -139,7 +136,7 @@ final class AppPasscodeUITests: XCTestCase {
         optimize.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
         app.buttons["closeStorageSettings"].tap()
         XCTAssertTrue(app.buttons["cloudVideoRow"].waitForExistence(timeout: 30),
-                      "Concealing a player must release its old file lease so cache optimization can proceed.")
+                      "Closing a retained player must release its file lease so cache optimization can proceed.")
     }
 
     private func isolatedApp() -> XCUIApplication {

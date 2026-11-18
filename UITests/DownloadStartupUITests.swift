@@ -113,7 +113,7 @@ final class DownloadStartupUITests: XCTestCase {
         XCUIDevice.shared.press(.home)
         XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
         app.activate()
-        app.unlockApp()
+        XCTAssertFalse(app.secureTextFields["contentPhraseInput"].exists)
         XCTAssertTrue(app.tabBars.buttons["离线"].waitForExistence(timeout: 10))
         waitForValue(containing: "active=false;idle=false", of: app.staticTexts["downloadActivityProbe"])
         XCTAssertGreaterThan(inactiveResetCount(in: app), inactiveResets)

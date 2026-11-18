@@ -55,7 +55,7 @@ final class OfflineBatchUITests: XCTestCase {
         XCUIDevice.shared.press(.home)
         XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
         app.activate()
-        app.unlockApp()
+        XCTAssertFalse(app.secureTextFields["contentPhraseInput"].exists)
         waitForValue(containing: "active=true;idle=true", of: activityProbe)
         XCTAssertGreaterThan(inactiveResetCount(in: app), inactiveResets,
                              "Leaving the foreground must restore the actual system idle timer.")

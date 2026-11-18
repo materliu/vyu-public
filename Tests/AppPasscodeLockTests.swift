@@ -51,7 +51,7 @@ final class AppPasscodeLockTests: XCTestCase {
         XCTAssertEqual(visibility.last, false)
     }
 
-    func testInactiveCoversContentAndBackgroundRevokesSession() {
+    func testInactiveAndBackgroundCoverContentWithoutRevokingSession() {
         let lock = makeLock()
         var visible = false
         lock.visibilityChanged = { visible = $0 }
@@ -63,7 +63,19 @@ final class AppPasscodeLockTests: XCTestCase {
         XCTAssertFalse(visible)
         lock.sceneChanged(to: .foregroundActive)
         XCTAssertTrue(visible)
-        lock.sceneChanged(to: .background)
+        for _ in 0..<3 {
+            lock.sceneChanged(to: .background)
+            XCTAssertTrue(lock.isUnlocked)
+            XCTAssertFalse(visible)
+            lock.sceneChanged(to: .foregroundActive)
+            XCTAssertTrue(lock.isUnlocked)
+            XCTAssertTrue(visible)
+        }
+        lock.sceneChanged(to: .unattached)
+        XCTAssertTrue(lock.isUnlocked)
+        XCTAssertFalse(visible)
+        XCTAssertFalse(makeLock().isUnlocked, "A new process must start concealed.")
+        lock.hideContent()
         lock.sceneChanged(to: .foregroundActive)
         XCTAssertFalse(lock.isUnlocked)
         XCTAssertFalse(visible)
