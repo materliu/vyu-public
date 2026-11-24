@@ -56,6 +56,14 @@ final class BrowserModel: NSObject, ObservableObject {
     private var documentReferrerPolicies: [URL: MediaRequestContext.ReferrerPolicy] = [:]
     private var partialResources: Set<MediaCandidate.ID> = []
     private let maximumFrameContexts = 160
+    private struct TitleFrameHost { let frame: WKFrameInfo; let documentURL: URL }
+    private var titleFrameHosts: [UUID: TitleFrameHost] = [:]
+    private var titleFrameChildren: [UUID: URL] = [:]
+    private var selectedTitleBindings: [MediaCandidate.ID: UUID] = [:]
+
+    private func clearTitleBindings() {
+        titleFrameHosts = [:]; titleFrameChildren = [:]; selectedTitleBindings = [:]
+    }
 
     init(navigationTimeout: TimeInterval = 25, websiteDataStore: WKWebsiteDataStore = .default()) {
         self.navigationTimeout = navigationTimeout
@@ -200,6 +208,7 @@ final class BrowserModel: NSObject, ObservableObject {
             discoveryID = UUID()
             candidates = []; alternateSources = [:]; pendingDownload = nil
             discoveryFrames = [:]
+            clearTitleBindings()
             partialResources = []
             explicitlySelectedFrames = []
             installScript()
@@ -260,7 +269,9 @@ final class BrowserModel: NSObject, ObservableObject {
             modes.add(!video.hasAttribute('crossorigin') ? 'none' :
               cors === 'use-credentials' ? 'useCredentials' : 'anonymous');
           }
+          const titleInfo = typeof window.__vyuTitleForMedia === 'function' ? window.__vyuTitleForMedia(target) : null;
           return {documentURL: location.href, userAgent: navigator.userAgent, metaPolicy,
+            title:titleInfo?.title || '', parentEligible:titleInfo?.parentEligible === true, frameID:titleInfo?.frameID || '',
             corsMode: modes.size > 1 ? 'anonymous' : modes.size === 1 ? Array.from(modes)[0] : null};
         })()
         """
@@ -268,7 +279,23 @@ final class BrowserModel: NSObject, ObservableObject {
         guard token == navigationToken, isCurrentCandidate(candidate),
               let fields = value as? [String: Any], let document = fields["documentURL"] as? String,
               let liveFrameURL = MediaMessageValidator.networkURL(document), liveFrameURL == candidate.frameURL else { return nil }
-        var prepared = candidate
+        var resolvedTitle = validatedTitle(fields["title"]) ?? candidate.title
+        if validatedTitle(fields["title"]) == nil, fields["parentEligible"] as? Bool == true,
+           let bindingString = fields["frameID"] as? String, let binding = UUID(uuidString: bindingString) {
+            let matching = titleFrameChildren.filter { $0.value == candidate.frameURL }.map(\.key)
+            let selected = selectedTitleBindings[candidate.id]
+            if selected == binding || (selected == nil && matching == [binding]) {
+                let title = await parentFrameTitle(binding, token: token, explicitlySelected: selected == binding)
+                let document = try? await webView.evaluateJavaScript("location.href", in: frame, contentWorld: .defaultClient)
+                guard let document = document as? String,
+                      MediaMessageValidator.networkURL(document) == candidate.frameURL else { return nil }
+                if let title { resolvedTitle = title }
+            }
+        }
+        guard token == navigationToken, isCurrentCandidate(candidate) else { return nil }
+        var prepared = MediaCandidate(url: candidate.url, pageURL: candidate.pageURL, frameURL: candidate.frameURL,
+            title: resolvedTitle, kind: candidate.kind, source: candidate.source, mimeType: candidate.mimeType,
+            userAgent: candidate.userAgent, requestContext: candidate.requestContext)
         if let agent = fields["userAgent"] as? String, !agent.isEmpty, agent.utf8.count <= 1_024,
            !agent.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) {
             prepared.userAgent = agent
@@ -280,6 +307,33 @@ final class BrowserModel: NSObject, ObservableObject {
             ?? documentReferrerPolicies[responseURL?.url ?? liveFrameURL] ?? .strictOriginWhenCrossOrigin
         prepared.requestContext = MediaRequestContext(corsMode: mode, referrerPolicy: policy)
         return prepared
+    }
+
+    private func validatedTitle(_ value: Any?) -> String? {
+        guard let value = value as? String, value.utf8.count <= 1_024,
+              !value.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return nil }
+        let title = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? nil : title
+    }
+
+    private func parentFrameTitle(_ first: UUID, token: String, explicitlySelected: Bool) async -> String? {
+        var next: UUID? = first, visited: Set<UUID> = []
+        for _ in 0..<4 {
+            guard token == navigationToken, let id = next, visited.insert(id).inserted,
+                  let host = titleFrameHosts[id] else { return nil }
+            let script = "window.__vyuTitleForFrame && window.__vyuTitleForFrame(\"\(id.uuidString.lowercased())\")"
+            let value = try? await webView.evaluateJavaScript(script, in: host.frame, contentWorld: .defaultClient)
+            guard token == navigationToken, let fields = value as? [String: Any],
+                  let document = fields["documentURL"] as? String,
+                  MediaMessageValidator.networkURL(document) == host.documentURL else { return nil }
+            if fields["ambiguous"] as? Bool == true && !explicitlySelected { return nil }
+            if let title = validatedTitle(fields["title"]) { return title }
+            guard fields["parentEligible"] as? Bool == true,
+                  let binding = fields["frameID"] as? String, let parent = UUID(uuidString: binding),
+                  titleFrameChildren[parent] == host.documentURL else { return nil }
+            next = parent
+        }
+        return nil
     }
 
     func alternatives(for candidate: MediaCandidate) -> [MediaCandidate] {
@@ -327,6 +381,7 @@ final class BrowserModel: NSObject, ObservableObject {
         candidates = []
         alternateSources = [:]
         discoveryFrames = [:]
+        clearTitleBindings()
         partialResources = []
         explicitlySelectedFrames = []
         documentReferrerPolicies = [:]
@@ -349,12 +404,19 @@ final class BrowserModel: NSObject, ObservableObject {
                                               originScheme: origin.protocol, originHost: origin.host, originPort: origin.port)
         guard let result = try? MediaMessageValidator.validate(message.body, context: context) else { return }
         switch result {
-        case .downloadRequested, .downloadUnavailable:
+        case .downloadRequested, .downloadUnavailable, .frameHost, .frameBound:
             guard trustedAction else { return }
         default: break
         }
         switch result {
         case .downloadRequested(let candidate):
+            if let fields = message.body as? [String: Any], let raw = fields["frameID"] as? String,
+               let id = UUID(uuidString: raw), titleFrameChildren[id] == candidate.frameURL {
+                if selectedTitleBindings[candidate.id] == nil && selectedTitleBindings.count >= maximumFrameContexts {
+                    selectedTitleBindings.removeAll(keepingCapacity: true)
+                }
+                selectedTitleBindings[candidate.id] = id
+            } else { selectedTitleBindings.removeValue(forKey: candidate.id) }
             if discoveryFrames[candidate.frameURL] != nil || discoveryFrames.count < maximumFrameContexts {
                 discoveryFrames[candidate.frameURL] = message.frameInfo
                 explicitlySelectedFrames.insert(candidate.frameURL)
@@ -370,6 +432,14 @@ final class BrowserModel: NSObject, ObservableObject {
         default: break
         }
         switch result {
+        case .frameHost(let id):
+            guard let document = context.frameRequestURL,
+                  titleFrameHosts[id] != nil || titleFrameHosts.count < maximumFrameContexts else { return }
+            titleFrameHosts[id] = TitleFrameHost(frame: message.frameInfo, documentURL: document)
+        case .frameBound(let id):
+            guard let document = context.frameRequestURL,
+                  titleFrameChildren[id] != nil || titleFrameChildren.count < maximumFrameContexts else { return }
+            titleFrameChildren[id] = document
         case .candidate(let candidate):
             merge(candidate)
         case .alternative(let candidate, let relatedURL):
@@ -436,8 +506,14 @@ final class BrowserModel: NSObject, ObservableObject {
         let explicitSource = ["video", "source"].contains(candidate.source)
         guard explicitSource || !partialResources.contains(candidate.id) else { return }
         if let index = candidates.firstIndex(where: { $0.id == candidate.id }) {
-            if explicitSource || (!["video", "source"].contains(candidates[index].source) && candidates[index].mimeType?.isEmpty != false) {
+            if explicitSource {
                 candidates[index] = candidate
+            } else if !["video", "source"].contains(candidates[index].source) {
+                let old = candidates[index], hasMIME = candidate.mimeType?.isEmpty == false
+                candidates[index] = MediaCandidate(url: candidate.url, pageURL: candidate.pageURL, frameURL: candidate.frameURL,
+                    title: candidate.title, kind: hasMIME ? candidate.kind : old.kind,
+                    source: hasMIME ? candidate.source : old.source, mimeType: hasMIME ? candidate.mimeType : old.mimeType,
+                    userAgent: old.userAgent, requestContext: old.requestContext)
             }
         } else {
             if explicitRequest && candidates.count >= 100 { candidates.removeFirst() }
@@ -566,6 +642,7 @@ extension BrowserModel: WKNavigationDelegate {
         pendingDownload = nil
         candidates = []; alternateSources = [:]
         discoveryFrames = [:]; explicitlySelectedFrames = []; documentReferrerPolicies = [:]; partialResources = []
+        clearTitleBindings()
         // Never put a failing URL, query string or request headers in a saved/UI error.
         let failure = error as NSError
         if failure.domain == NSURLErrorDomain {
@@ -597,6 +674,7 @@ extension BrowserModel: WKNavigationDelegate {
         historyVisit = nil; historyTitleUpdate = nil
         candidates = []; alternateSources = [:]; pendingDownload = nil
         discoveryFrames = [:]; explicitlySelectedFrames = []; documentReferrerPolicies = [:]; partialResources = []
+        clearTitleBindings()
         isLoading = false
         loadError = "网页进程已结束，请重新加载。"
         statusText = loadError!

@@ -68,6 +68,35 @@ def popup_page(method="GET", marker_received=False):
 
 
 def html_for(path):
+    if path == "/title-frame-inner":
+        return page("内嵌播放器", '<style>body{margin:8px}h1{font-size:16px}video{height:120px;min-height:120px}</style>'
+                    '<video controls playsinline preload="metadata" src="/media/hls-separate/master.m3u8"></video>', '''
+                    const bindingFields=[];
+                    window.addEventListener('message',event=>{
+                      if(event.source!==parent || !event.data) return;
+                      if(event.data.vyuFrameBinding || event.data.vyuScan) bindingFields.push(Object.keys(event.data));
+                      if(event.data.fixtureInspectBindings) parent.postMessage({fixtureBindingFields:bindingFields},'*');
+                    });''')
+    if path == "/title-frame-middle":
+        return page("Video player", '<iframe title="Video player"></iframe>',
+                    'document.querySelector("iframe").src=location.protocol+"//"+location.hostname+":8765/title-frame-inner";')
+    if path == "/title-frame-nested":
+        return page("嵌套播放器合集", '<article><p>跨两层播放器的山谷</p><iframe title="Video player"></iframe></article>',
+                    'document.querySelector("iframe").src=location.protocol+"//"+location.hostname+":' + str(PEER_PORT) + '/title-frame-middle";')
+    if path == "/title-frame-outer":
+        return page("外层视频合集", '''<style>iframe{height:280px;min-height:280px}article{margin:12px 0}</style>
+            <article><p>第一张卡片的溪流</p><iframe title="Video player"></iframe></article>
+            <article role="group" aria-label="目标外层卡片"><p id="outer-caption">第二张卡片的晚风</p><iframe title="Video player"></iframe></article>''',
+                    'for (const frame of document.querySelectorAll("iframe")) frame.src=location.protocol+"//"+location.hostname+":' + str(PEER_PORT) + '/title-frame-inner";')
+    if path == "/title-wrapper-mixed":
+        return page("混排内容合集", '''<article class="comment">
+            <div class="comment-content social"><div><img alt="合成头像"><a rel="author">示例作者</a><time>7 小时前</time></div>
+            <p>山间清晨的散步<br><a href="/fixture-source">来源链接</a> <span class="label">自然</span> (source.example)</p>
+            <div><video controls playsinline preload="metadata" src="/media/direct.mp4?wrapper=one"></video></div></div></article>
+            <article class="comment"><div class="comment-content social"><p>雨后花园的观察<br><span class="badge">植物</span></p>
+            <video controls playsinline preload="metadata" src="/media/direct.mp4?wrapper=two"></video></div></article>
+            <article><p><a href="/fixture-post">链接里的完整标题</a><span class="label">自然标签</span></p>
+            <video controls playsinline preload="metadata" src="/media/direct.mp4?wrapper=three"></video></article>''')
     if path == "/cover-timeline":
         return page("封面选帧 · 黑红绿蓝", player("/media/cover-timeline.mp4"))
     if path == "/batch":

@@ -1,6 +1,28 @@
 import XCTest
 
 final class VYuUITests: XCTestCase {
+    func testOuterCardTitleFollowsTheClickedDuplicateCrossOriginFrame() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication(); let id = UUID().uuidString
+        app.launchArguments = ["--fixture-cloud-sync", id, "--fixture-url", "http://127.0.0.1:8765/title-frame-outer"]
+        app.launchAndUnlock(); defer { app.terminate() }
+        let group = app.webViews.otherElements["目标外层卡片"]
+        let button = group.buttons["下载此视频"]
+        XCTAssertTrue(button.waitForExistence(timeout: 25))
+        for _ in 0..<6 where !button.isHittable { app.webViews.firstMatch.swipeUp() }
+        button.tap()
+        XCTAssertTrue(app.staticTexts["downloadToast"].waitForExistence(timeout: 20))
+        app.tabBars.buttons["离线"].tap()
+        let row = app.buttons["offlineVideoRow"]
+        XCTAssertTrue(row.waitForExistence(timeout: 90))
+        XCTAssertEqual(row.label, "第二张卡片的晚风")
+        XCTAssertEqual(app.buttons.matching(identifier: "offlineVideoRow").count, 1)
+        app.terminate(); app.launchArguments = ["--fixture-cloud-sync", id]; app.launchAndUnlock()
+        app.tabBars.buttons["离线"].tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        XCTAssertEqual(row.label, "第二张卡片的晚风")
+    }
+
     func testOfflineVideoSearchFavoritesAndTagsPersistWithoutChangingPlayback() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

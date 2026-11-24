@@ -14,6 +14,8 @@ enum DiscoverySignal: Equatable { case mediaSource, protectedContent }
 enum InlineDownloadIssue: Equatable { case mediaSource, protectedContent, noSource }
 
 enum ValidatedDiscoveryMessage: Equatable {
+    case frameHost(UUID)
+    case frameBound(UUID)
     case candidate(MediaCandidate)
     // The page already supplied both representations in one video_info object.
     // This is still untrusted metadata; native UI must confirm a selected file.
@@ -37,8 +39,8 @@ enum MediaMessageValidator {
     private static let allowedSources: Set<String> = ["video", "source", "performance", "fetch", "xhr", "encrypted"]
 
     static func validate(_ body: Any, context: DiscoveryMessageContext) throws -> ValidatedDiscoveryMessage {
-        guard let fields = body as? [String: Any], fields.count <= 8,
-              fields.keys.allSatisfy({ ["token", "documentURL", "event", "url", "title", "source", "mime", "relatedURL"].contains($0) }),
+        guard let fields = body as? [String: Any], fields.count <= 9,
+              fields.keys.allSatisfy({ ["token", "documentURL", "event", "url", "title", "source", "mime", "relatedURL", "frameID"].contains($0) }),
               fields.values.allSatisfy({ $0 is String }), JSONSerialization.isValidJSONObject(fields) else {
             throw DiscoveryValidationError.malformed
         }
@@ -60,10 +62,21 @@ enum MediaMessageValidator {
         }
         guard let source = fields["source"] as? String,
               let event = fields["event"] as? String,
-              (event == "alternative" ? source == "metadata" : allowedSources.contains(source)),
+              (event == "alternative" ? source == "metadata" : ["frame-host", "frame-bound"].contains(event) ? source == "frame" : allowedSources.contains(source)),
               let title = fields["title"] as? String, title.utf8.count <= 1_024,
               (fields["mime"] as? String)?.utf8.count ?? 0 <= 256 else { throw DiscoveryValidationError.malformed }
         if !["alternative", "partial"].contains(event), fields["relatedURL"] != nil { throw DiscoveryValidationError.malformed }
+        if let binding = fields["frameID"] as? String {
+            guard ["frame-host", "frame-bound", "download"].contains(event), binding.utf8.count == 36,
+                  UUID(uuidString: binding) != nil else { throw DiscoveryValidationError.malformed }
+        }
+        if ["frame-host", "frame-bound"].contains(event) {
+            guard let binding = fields["frameID"] as? String, let id = UUID(uuidString: binding),
+                  fields["url"] as? String == "", title == "", fields["mime"] as? String == "" else {
+                throw DiscoveryValidationError.malformed
+            }
+            return event == "frame-host" ? .frameHost(id) : .frameBound(id)
+        }
         if event == "mse" { return .signal(.mediaSource) }
         if event == "protected" { return .signal(.protectedContent) }
         let unavailableEvents: [String: InlineDownloadIssue] = [

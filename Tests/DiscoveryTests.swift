@@ -2,6 +2,28 @@ import XCTest
 @testable import VYu
 
 final class DiscoveryTests: XCTestCase {
+    func testFrameBindingsRetainNavigationOriginAndPayloadChecks() throws {
+        let id = UUID()
+        for event in ["frame-host", "frame-bound"] {
+            let fields: [String: String] = ["token":"current", "documentURL":"https://video.example/watch",
+                "event":event, "source":"frame", "url":"", "title":"", "mime":"", "frameID":id.uuidString]
+            let result = try MediaMessageValidator.validate(fields, context: context())
+            XCTAssertEqual(result, event == "frame-host" ? .frameHost(id) : .frameBound(id))
+            for (key, value) in [("token","stale"), ("documentURL","https://wrong.example/watch"),
+                                 ("frameID","not-a-uuid"), ("title","must not cross the page message bus"),
+                                 ("url","https://cdn.example/movie.mp4"), ("mime","video/mp4"), ("source","video")] {
+                var invalid = fields; invalid[key] = value
+                XCTAssertThrowsError(try MediaMessageValidator.validate(invalid, context: context()))
+            }
+        }
+        var candidate = body(); candidate["frameID"] = id.uuidString
+        XCTAssertThrowsError(try MediaMessageValidator.validate(candidate, context: context()))
+        var click = body(event: "download"); click["frameID"] = id.uuidString
+        guard case .downloadRequested = try MediaMessageValidator.validate(click, context: context()) else {
+            return XCTFail("A binding only adds title context to an otherwise validated click")
+        }
+    }
+
     private func context(token: String = "current", frame: String = "https://video.example/watch",
                          scheme: String = "https", host: String = "video.example", port: Int = 0) -> DiscoveryMessageContext {
         DiscoveryMessageContext(navigationToken: token, pageURL: URL(string: "https://site.example/page")!,

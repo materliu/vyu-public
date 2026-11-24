@@ -25,6 +25,8 @@ enum DiscoveryScript {
           const protectedVideos = new WeakSet();
           const controls = new Map();
           const controlHosts = new WeakSet();
+          const frameHosts = new Map();
+          let ownFrameBinding = '', bindingToken = token, lastBindingRequest = -Infinity;
           const sizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(scheduleScan) : null;
           let emitted = 0, pending = false, hasBlob = false, hasProtected = false;
           let metadataReaders = 0;
@@ -43,6 +45,7 @@ enum DiscoveryScript {
             return ['video', 'video player', 'embedded video', 'media player', 'youtube video player',
               'play', 'pause', 'play video', 'pause video', '播放', '暂停', '播放视频', '暂停视频',
               '视频', '影片', '播放器', '视频播放器', '内嵌视频', '嵌入视频',
+              '内嵌播放器', '嵌入播放器', '视频播放', '播放页面', 'player', 'embedded player',
               '下载', '下载视频', '下载此视频', '点赞', '评论', '分享', '分享给朋友',
               '来源', '来源链接', '查看来源', '原文', '查看原文', '阅读全文', '更多',
               'download', 'download video', 'like', 'comment', 'share', 'source', 'view source', 'read more'].includes(title.toLowerCase()) ? '' : title;
@@ -51,13 +54,13 @@ enum DiscoveryScript {
           const titleNodeBudget = 256;
           const titleExcluded = 'script,style,template,nav,footer,time,button,input,select,textarea,video,[data-vyu-download],[role="button"],[role="toolbar"],[rel~="author"],[rel~="tag"],[itemprop="author"],[itemprop="datePublished"],[itemprop="dateModified"]';
           function titleContext() {
-            const context = {videos: new WeakMap(), semantic: new WeakMap(), plain: new WeakMap(), indexed: true};
+            const context = {videos: new WeakMap(), semantic: new WeakMap(), plain: new WeakMap(), declarations: new WeakMap(), indexed: true};
             // Index media ancestry, not all of a player's decorative DOM. The
             // snapshot is synchronous and discarded after this scan or click.
-            const videos = document.getElementsByTagName('video');
-            if (videos.length > 80) { context.indexed = false; return context; }
-            for (let index = 0; index < videos.length; index++) {
-              let ancestor = videos[index], depth = 0;
+            const videos = document.getElementsByTagName('video'), frames = document.getElementsByTagName('iframe');
+            if (videos.length + frames.length > 80) { context.indexed = false; return context; }
+            for (const media of [videos, frames]) for (let index = 0; index < media.length; index++) {
+              let ancestor = media[index], depth = 0;
               for (; ancestor && depth < 64; depth++, ancestor = ancestor.parentElement) {
                 context.videos.set(ancestor, Math.min(2, (context.videos.get(ancestor) || 0) + 1));
               }
@@ -77,8 +80,9 @@ enum DiscoveryScript {
           }
           function metadataRole(element, context) {
             return element.matches(titleExcluded) ||
-              (/(?:^|[\s_-])(?:author|byline|avatar|username|user-info|profile|timestamp|timeago|metadata|meta|tags?|hashtags?|badge|categories|category|social|engagement|shares?|likes?|comments?|reactions?|actions?|toolbar|controls?|download)(?:$|[\s_-])/.test(titleRole(element)) &&
-               !(context && localCard(element) && boundedVideoCount(element, context) === 1));
+              ((/(?:^|[\s_-])(?:author|byline|avatar|username|user-info|profile|timestamp|timeago|metadata|meta|tags?|hashtags?|badge|categories|category|social|engagement|shares?|likes?|comments?|reactions?|actions?|toolbar|controls?|download)(?:$|[\s_-])/.test(titleRole(element)) ||
+                (!titleHint(element) && /(?:^|[\s_-])labels?(?:$|[\s_-])/.test(titleRole(element)))) &&
+               !(context && boundedVideoCount(element, context) === 1));
           }
           function localCard(element) {
             if (element.matches('article,figure,li,[role="article"]')) return true;
@@ -149,6 +153,12 @@ enum DiscoveryScript {
                 }
                 if (node.nodeType !== Node.ELEMENT_NODE) continue;
                 if (boundedVideoCount(node, context) !== 0) { finish(); return; }
+                if (node.tagName === 'A') {
+                  const linked = titleText(node, false, context);
+                  if (linked && text.length <= 1600) text += ' ' + linked;
+                  else finish();
+                  continue;
+                }
                 if (!node.matches('span,em,strong,b,i,u,s,small,mark,sub,sup') || metadataRole(node, context) ||
                     node.hidden || node.getAttribute('aria-hidden') === 'true' ||
                     getComputedStyle(node).display === 'none' || getComputedStyle(node).visibility === 'hidden') {
@@ -163,7 +173,7 @@ enum DiscoveryScript {
           }
           function boundedVideoCount(element, context) {
             if (!element) return 0;
-            if (element.tagName === 'VIDEO') return 1;
+            if (element.matches('video,iframe')) return 1;
             if (context.videos.has(element)) return context.videos.get(element);
             if (context.indexed && element.ownerDocument === document && element.isConnected) return 0;
             const walker = document.createTreeWalker(element, NodeFilter.SHOW_ELEMENT);
@@ -171,7 +181,7 @@ enum DiscoveryScript {
             while ((node = walker.nextNode())) {
               // Unknown is deliberately treated like a multi-player container.
               if (++visited > titleNodeBudget) { count = 2; break; }
-              if (node.tagName === 'VIDEO' && ++count === 2) break;
+              if (node.matches('video,iframe') && ++count === 2) break;
             }
             context.videos.set(element, count);
             return count;
@@ -210,12 +220,12 @@ enum DiscoveryScript {
             for (let depth = 0; depth < 4; depth++) {
               const parent = block.parentElement;
               if (!parent || parent === container || !parent.matches('div,p,span') ||
-                  boundedVideoCount(parent, context) !== 0 || excludedTitleElement(parent, context, true)) break;
+                  boundedVideoCount(parent, context) !== 0 || excludedTitleElement(parent, context, true, true)) break;
               // Join formatting spans belonging to one text block, not separate
               // paragraphs, tags, author rows or another nested card.
               let child = parent.firstElementChild, count = 0, inlineOnly = true;
               for (; child && count < 32; count++, child = child.nextElementSibling) {
-                if (!child.matches('span,em,strong,b,i,u,s,small,mark,sub,sup,br')) { inlineOnly = false; break; }
+                if (!child.matches('span,em,strong,b,i,u,s,small,mark,sub,sup,br,a')) { inlineOnly = false; break; }
               }
               if (child || !inlineOnly) break;
               block = parent;
@@ -315,8 +325,8 @@ enum DiscoveryScript {
             context.structured = titles;
             return titles;
           }
-          function videoTitle(video, context = titleContext()) {
-            const attribute = contentTitle(video.getAttribute('title')) || dataTitle(video);
+          function localMediaTitle(video, context = titleContext()) {
+            const attribute = (video.tagName === 'VIDEO' ? contentTitle(video.getAttribute('title')) : '') || dataTitle(video);
             if (attribute) return attribute;
             const labelled = (video.getAttribute('aria-labelledby') || '').slice(0, 1024).trim().split(/\s+/).slice(0, 8)
               .map(id => titleText(document.getElementById(id), true, context)).filter(Boolean).join(' ');
@@ -371,7 +381,7 @@ enum DiscoveryScript {
                 const block = plainTextBlock(node, parent, context);
                 if (checkedBlocks.has(block)) continue;
                 checkedBlocks.add(block);
-                const text = titleText(block, false, context) || inlineTitle(block, context);
+                const text = inlineTitle(block, context) || titleText(block, false, context);
                 if (text) return text;
               }
               if (localCard(parent)) break;
@@ -379,18 +389,99 @@ enum DiscoveryScript {
             const described = (video.getAttribute('aria-describedby') || '').slice(0, 1024).trim().split(/\s+/).slice(0, 8)
               .map(id => titleText(document.getElementById(id), true, context)).filter(Boolean).join(' ');
             if (contentTitle(described)) return contentTitle(described);
-            const selected = selectedSource(video);
+            const selected = video.tagName === 'VIDEO' ? selectedSource(video) : null;
             if (selected && selected.url && !selected.url.startsWith('blob:')) {
               try {
                 const title = structuredVideoTitles(context).get(new URL(selected.url, document.baseURI).href);
                 if (title) return title;
               } catch (_) {}
             }
-            return cleanTitle(document.title);
+            return video.tagName === 'IFRAME' ? contentTitle(video.getAttribute('title')) : '';
+          }
+          function videoTitle(video, context = titleContext()) {
+            return localMediaTitle(video, context) || cleanTitle(document.title);
+          }
+          function mediaURL(value) {
+            if (typeof value !== 'string' || !value || value.length > 8192 || /[\u0000-\u001f\u007f]/.test(value)) return '';
+            try { const url = new URL(value, document.baseURI);
+              return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : '';
+            } catch (_) { return ''; }
+          }
+          function declaredMediaURLs(video, context) {
+            if (context.declarations.has(video)) return context.declarations.get(video);
+            const urls = new Set(), selected = selectedSource(video);
+            if (selected) { const url = mediaURL(selected.url); if (url) urls.add(url); }
+            for (const source of Array.from(video.getElementsByTagName('source')).slice(0, 30)) {
+              const url = mediaURL(source.getAttribute('src')); if (url) urls.add(url);
+            }
+            let owner = video;
+            for (let depth = 0; owner && depth < 8; depth++, owner = owner.parentElement) {
+              if (owner !== video && (owner === document.body || owner === document.documentElement ||
+                  owner.tagName === 'MAIN' || boundedVideoCount(owner, context) !== 1)) break;
+              for (const name of ['data-src', 'data-video-src', 'data-video-url', 'data-hls', 'data-hls-src', 'data-m3u8']) {
+                const url = mediaURL(owner.getAttribute(name)); if (url) urls.add(url);
+              }
+              if (localCard(owner)) break;
+            }
+            context.declarations.set(video, urls);
+            return urls;
+          }
+          function titleForMediaURL(target, context = titleContext()) {
+            target = mediaURL(target);
+            if (!target) return {title:'', parentEligible:false};
+            const all = document.getElementsByTagName('video'), matches = [];
+            for (let index = 0; index < Math.min(all.length, 80); index++) {
+              if (declaredMediaURLs(all[index], context).has(target)) matches.push(all[index]);
+            }
+            const titles = matches.map(video => localMediaTitle(video, context));
+            const unique = new Set(titles.filter(Boolean));
+            if (unique.size > 1) return {title:'', parentEligible:false};
+            let local = titles.length && titles.every(Boolean) ? titles[0] : '';
+            if (window.parent !== window && local === cleanTitle(document.title) &&
+                !matches.some(video => contentTitle(video.getAttribute('title')) || dataTitle(video) ||
+                  contentTitle(video.getAttribute('aria-label')) || video.getAttribute('aria-labelledby'))) local = '';
+            const title = local || structuredVideoTitles(context).get(target) || '';
+            return {title, parentEligible:matches.length === 1 && all.length === 1 && document.getElementsByTagName('iframe').length === 0};
+          }
+          function frameMessage(event, frameID) {
+            if (!controlsOnly) return;
+            try { handler.postMessage({token, documentURL:location.href, event, url:'', title:'', source:'frame', mime:'', frameID}); } catch (_) {}
+          }
+          function registerFrame(frame, force = false) {
+            if (!controlsOnly || !frame.isConnected) return;
+            let state = frameHosts.get(frame);
+            if (!state) {
+              if (frameHosts.size >= 80) return;
+              try {
+                const bytes = crypto.getRandomValues(new Uint8Array(16));
+                const hex = Array.from(bytes, value => value.toString(16).padStart(2,'0')).join('');
+                state = {id:[hex.slice(0,8),hex.slice(8,12),hex.slice(12,16),hex.slice(16,20),hex.slice(20)].join('-'), token:'', lastReply:-Infinity};
+                frameHosts.set(frame, state);
+              } catch (_) { return; }
+            }
+            if (!force && state.token === token) return;
+            state.token = token;
+            state.lastReply = performance.now();
+            frameMessage('frame-host', state.id);
+            // Only an opaque binding is sent through the page's message bus.
+            // Titles and URLs cross origins exclusively through native WebKit.
+            try { frame.contentWindow.postMessage({vyuFrameBinding:state.id, token}, '*'); } catch (_) {}
+          }
+          function updateFrameBindings(force = false) {
+            if (!controlsOnly) return;
+            if (bindingToken !== token) { frameHosts.clear(); ownFrameBinding = ''; bindingToken = token; lastBindingRequest = -Infinity; }
+            for (const frame of frameHosts.keys()) if (!frame.isConnected) frameHosts.delete(frame);
+            const frames = document.getElementsByTagName('iframe');
+            for (let index = 0; index < Math.min(frames.length, 80); index++) registerFrame(frames[index], force);
+            if (window.parent !== window && !ownFrameBinding && (force || performance.now() - lastBindingRequest >= 500)) {
+              lastBindingRequest = performance.now();
+              try { window.parent.postMessage({vyuFrameNeedsBinding:true, token}, '*'); } catch (_) {}
+            }
           }
           function post(event, url, source, mime, title) {
             try {
               handler.postMessage({token, documentURL: location.href, event, url: url || '',
+                ...(controlsOnly && event === 'download' && ownFrameBinding ? {frameID:ownFrameBinding} : {}),
                 title: cleanTitle(title) || cleanTitle(document.title), source, mime: (mime || '').slice(0, 200)});
             } catch (_) {}
           }
@@ -478,6 +569,7 @@ enum DiscoveryScript {
                 title: previous && priority(previous.source) > priority(source) ? previous.title : cleanTitle(title) || (previous && previous.title) || ''
               };
               if (observed.size < 160 || previous) observed.set(url.href, preferred);
+              if (!['video', 'source'].includes(source)) scheduleScan();
               send('candidate', url.href, preferred.source, preferred.mime, preferred.title);
               if (preferred.title) {
                 for (const item of alternatives.values()) {
@@ -852,8 +944,9 @@ enum DiscoveryScript {
             }
             placeControl(video, context);
           }
-          function scan() {
+          function scan(rebindFrames = false) {
             pending = false;
+            updateFrameBindings(rebindFrames === true);
             const videos = Array.prototype.slice.call(document.getElementsByTagName('video'), 0, 80);
             const context = titleContext();
             const live = new Set(videos);
@@ -864,6 +957,11 @@ enum DiscoveryScript {
               }
             }
             for (const video of videos) inspect(video, context);
+            if (!controlsOnly) for (const [url, item] of observed) {
+              if (['video','source'].includes(item.source)) continue;
+              const title = titleForMediaURL(url, context).title;
+              if (item.title !== title) { item.title = title; send('candidate', url, item.source, item.mime, title); }
+            }
           }
           function scheduleScan() {
             if (!pending) { pending = true; setTimeout(scan, 180); }
@@ -892,7 +990,7 @@ enum DiscoveryScript {
             // Retain MIME-only network discoveries that happened before native commit.
             for (const [url, item] of observed) send('candidate', url, item.source, item.mime, item.title);
             for (const item of alternatives.values()) sendAlternative(item);
-            scan(); resources();
+            scan(true); resources();
             if (hasBlob) send('mse', '', 'video', '');
             for (const frame of Array.from(document.querySelectorAll('iframe')).slice(0, 80)) {
               try { frame.contentWindow.postMessage({vyuScan: token, resetHistory: resetHistory === true}, '*'); } catch (_) {}
@@ -950,6 +1048,37 @@ enum DiscoveryScript {
             });
           } catch (_) {}
           window.addEventListener('message', event => {
+            if (controlsOnly && event.isTrusted && event.data && event.data.vyuFrameNeedsBinding === true) {
+              const frames = document.getElementsByTagName('iframe');
+              for (let index = 0; index < Math.min(frames.length, 80); index++) {
+                const frame = frames[index];
+                if (frame.contentWindow !== event.source) continue;
+                const state = frameHosts.get(frame);
+                // A newly navigated child can have the original user-script
+                // epoch. Rebind only a live child WindowProxy, not a claimed URL.
+                const reply = () => {
+                  if (!frame.isConnected) return;
+                  try { frame.contentWindow.postMessage({vyuScan:token, resetHistory:false}, '*'); } catch (_) {}
+                  registerFrame(frame, true);
+                };
+                if (state && performance.now() - state.lastReply < 100) {
+                  // Defer, never drop the last request: a fast nested document
+                  // may already be idle and have no later DOM event to retry it.
+                  if (!state.pendingReply) state.pendingReply = setTimeout(() => {
+                    state.pendingReply = null;
+                    if (frameHosts.get(frame) === state) reply();
+                  }, 100);
+                } else reply();
+                break;
+              }
+            }
+            if (controlsOnly && event.isTrusted && event.data && event.data.token === token) {
+              if (event.source === window.parent && window.parent !== window &&
+                  typeof event.data.vyuFrameBinding === 'string' && /^[0-9a-f-]{36}$/i.test(event.data.vyuFrameBinding)) {
+                ownFrameBinding = event.data.vyuFrameBinding;
+                frameMessage('frame-bound', ownFrameBinding);
+              }
+            }
             // A restored back/forward document keeps its JS state. Only the current
             // parent passes the new navigation epoch down through its live frame tree.
             if (window.parent !== window && event.source === window.parent && event.data &&
@@ -961,6 +1090,22 @@ enum DiscoveryScript {
           window.addEventListener('resize', scheduleScan, {passive: true});
           document.addEventListener('DOMContentLoaded', refresh, {once: true});
           window.__vyuRescan = refresh;
+          if (controlsOnly) {
+            window.__vyuTitleForMedia = target => ({documentURL:location.href, ...titleForMediaURL(target), frameID:ownFrameBinding});
+            window.__vyuTitleForFrame = frameID => {
+              for (const [frame, state] of frameHosts) if (state.id === frameID && frame.isConnected) {
+                let copies = 0;
+                const frames = document.getElementsByTagName('iframe');
+                for (let index = 0; index < Math.min(frames.length, 80); index++) {
+                  if (frames[index].src === frame.src && ++copies === 2) break;
+                }
+                return {documentURL:location.href, title:localMediaTitle(frame), frameID:ownFrameBinding,
+                  ambiguous:copies > 1,
+                  parentEligible:document.getElementsByTagName('video').length === 0 && document.getElementsByTagName('iframe').length === 1};
+              }
+              return null;
+            };
+          }
           window.__vyuSetNavigationToken = (next, resetHistory = false) => {
             if (typeof next === 'string' && /^[0-9A-F-]{36}$/i.test(next)) { token = next; refresh(resetHistory === true); }
           };
